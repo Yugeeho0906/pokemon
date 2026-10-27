@@ -1,0 +1,11 @@
+dist/
+.godot/
+*.tmp
+*.bak
+__pycache__/
+*.pyc
+node_modules/
+test-results/
+screenshots/
+artifacts/
+*.log
