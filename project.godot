@@ -1,0 +1,25 @@
+; 포켓몬스터: 천년의 전설 — Godot 4 PC 플레이 버전
+config_version=5
+
+[application]
+config/name="포켓몬스터: 천년의 전설"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/description="한국풍 2D RPG · 인천에서 수원까지의 첫 모험"
+
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=800
+window/size/window_width_override=1280
+window/size/window_height_override=800
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
+textures/canvas_textures/default_texture_filter=0
+environment/defaults/default_clear_color=Color(0.966, 0.957, 0.925, 1)
+
+[gui]
+theme/default_font_multichannel_signed_distance_field=true
