@@ -5,6 +5,9 @@ signal rescue_event_finished
 
 # 인천부터 수원까지의 화면, 입력, 이벤트 연결을 담당합니다.
 const GameEngine = preload("res://game/engine.gd")
+const Trainers = preload("res://game/trainers.gd")
+const Encounters = preload("res://game/encounters.gd")
+const BattleTransition = preload("res://game/battle_transition.gd")
 const Field = preload("res://game/field.gd")
 const FONT = preload("res://assets/fonts/NotoSansKR.otf")
 const SAVE_PATH = "user://adventure_v1.json"
@@ -32,6 +35,8 @@ var dialogue_callback: Callable
 var battle_page := "main"
 var walk_path: Array[Vector2] = []
 var auto_interaction := ""
+var encounters := Encounters.new()
+var transition: Control
 var grass_distance := 0.0
 var encounter_cooldown := 0.0
 var toast_time := 0.0
@@ -108,6 +113,8 @@ func _ready() -> void:
 	file_dialog.filters = PackedStringArray(["*.json ; 모험 저장 파일"])
 	file_dialog.file_selected.connect(_file_selected)
 	hud.add_child(file_dialog)
+	transition = BattleTransition.new()
+	hud.add_child(transition)
 	refresh_hud()
 	show_title()
 
@@ -153,6 +160,12 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if transition != null and transition.active: return
+	if OS.is_debug_build() and event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F8: field.debug_positions = not field.debug_positions
+		if event.keycode == KEY_F9:
+			encounters.debug_guaranteed = not encounters.debug_guaranteed
+			toast("디버그 조우: " + ("100%" if encounters.debug_guaranteed else "기본 10%"))
 	if file_dialog.visible:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -171,7 +184,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _can_move() -> bool:
-	return active and not cinematic_active and not menu.visible and not dialogue_layer.visible and not battle_layer.visible and not file_dialog.visible
+	return active and not transition.active and not cinematic_active and not menu.visible and not dialogue_layer.visible and not battle_layer.visible and not file_dialog.visible
 
 
 func _gym_open() -> bool:
@@ -193,12 +206,11 @@ func _move(offset: Vector2) -> void:
 	field.moving = true
 	if absf(offset.x) > absf(offset.y): state.player.facing = "right" if offset.x > 0 else "left"
 	else: state.player.facing = "down" if offset.y > 0 else "up"
-	if state.area == "route" and Field.is_grass(state.area, state.player.x, state.player.y):
-		grass_distance += after.distance_to(before)
-		if grass_distance >= 5.5 and encounter_cooldown <= 0:
-			grass_distance = 0
-			state.steps += 1
-			start_battle("wild")
+	var encounter: Dictionary = encounters.advance(state.area, before, after, encounter_cooldown)
+	if not encounter.is_empty() and state.flags.starterChosen:
+		state.steps += 1
+		start_battle("wild", encounter.species)
+
 
 
 # 클릭 이동도 키보드 이동과 같은 충돌 판정을 사용합니다.
@@ -314,6 +326,7 @@ func interact(id: String = "") -> void:
 
 
 func change_area(area: String, point: Vector2) -> void:
+	encounters.reset()
 	state.area = area
 	state.player.x = point.x
 	state.player.y = point.y
@@ -337,6 +350,8 @@ func _new_cinematic_tween(parallel: bool = false) -> Tween:
 
 func _cancel_cinematic() -> void:
 	# 세이브 불러오기·새 게임·타이틀 전환 후 이전 await가 새 상태를 바꾸지 않게 합니다.
+	if transition != null: transition.cancel()
+	encounters.reset()
 	cinematic_generation += 1
 	for tween in cinematic_tweens:
 		if is_instance_valid(tween): tween.kill()
@@ -578,14 +593,23 @@ func select_starter(id: String) -> void:
 
 
 func start_battle(kind: String, species: String = "", trainer_id: int = -1) -> void:
+	if transition.active or state.battle != null: return
 	var result: Dictionary = GameEngine.start_battle(state,kind,species,trainer_id)
 	if not result.ok:
 		toast(result.message)
 		return
 	walk_path.clear()
+	auto_interaction = ""
 	battle_page = "main"
+	var mode: int = BattleTransition.Kind.WILD if kind == "wild" else BattleTransition.Kind.GYM if kind == "gym" else BattleTransition.Kind.STORY if kind == "rival" else BattleTransition.Kind.TRAINER
+	if not await transition.cover(mode): return
 	render_battle()
 	refresh_hud()
+	_set_battle_buttons_locked(true)
+	if not await transition.reveal(): return
+	await _battle_arrival()
+
+
 
 
 func render_battle() -> void:
@@ -610,6 +634,7 @@ func render_battle() -> void:
 	_mon_display(battle_layer,enemy,Rect2(632,206,234,200),false)
 	_mon_display(battle_layer,ally,Rect2(157,346,240,190),true)
 	if battle.kind == "rival": _portrait(battle_layer,"harin",Rect2(858,125,105,250))
+	_trainer_intro(battle)
 	var logs: Array = battle.logs
 	var recent := ""
 	for line in logs.slice(maxi(0,logs.size()-4)):
@@ -648,6 +673,7 @@ func render_battle() -> void:
 
 
 func perform_battle_action(action: Dictionary) -> void:
+	if transition.active: return
 	if state.battle == null or not str(state.battle.get("outcome","")).is_empty(): return
 	var move_type := "normal"
 	if action.type == "move":
@@ -722,14 +748,18 @@ func _play_battle_move_animation(move_type: String) -> void:
 
 
 func finish_battle() -> void:
+	if transition.active: return
 	if state.battle == null or str(state.battle.get("outcome","")).is_empty(): return
 	var kind: String = state.battle.kind
 	var outcome: String = state.battle.outcome
+	if not await transition.cover(BattleTransition.Kind.STORY): return
 	state.battle = null
 	battle_layer.hide()
+	encounters.reset()
 	encounter_cooldown = 4
 	grass_distance = 0
 	refresh_hud()
+	if not await transition.reveal(): return
 	if outcome == "won" and kind == "rival":
 		GameEngine.heal_party(state)
 		show_dialogue([{"speaker":"서하린", "text":"좋아, 이번에는 네가 이겼어! 동료들도 회복됐으니 동쪽 1번도로로 출발하자. 다음엔 절대 안 져!", "portrait":"harin"}])
@@ -763,7 +793,7 @@ func refresh_hud() -> void:
 
 
 func open_menu(title: String) -> void:
-	if cinematic_active:
+	if cinematic_active or transition.active:
 		toast("이벤트 연출이 끝난 뒤 메뉴를 열 수 있습니다.")
 		return
 	_clear(menu)
@@ -876,7 +906,7 @@ func fast_travel(area: String) -> void:
 
 
 func open_save() -> void:
-	if cinematic_active: toast("이벤트 연출이 끝난 뒤 저장 메뉴를 열 수 있습니다."); return
+	if cinematic_active or transition.active: toast("이벤트 연출이 끝난 뒤 저장 메뉴를 열 수 있습니다."); return
 	if state.battle != null: toast("전투를 마친 뒤 저장해 주세요."); return
 	open_menu("모험 기록 · 저장 / 불러오기")
 	_label(menu,"이 기기에 저장",Rect2(285,193,710,30),20)
@@ -1139,3 +1169,46 @@ func _clear(node: Node) -> void:
 	for child in node.get_children():
 		node.remove_child(child)
 		child.queue_free()
+
+
+func _set_battle_buttons_locked(locked: bool) -> void:
+	for button in battle_layer.find_children("*", "Button", true, false):
+		button.disabled = locked
+
+
+func _battle_arrival() -> void:
+	var token: int = transition.generation
+	transition.active = true
+	var tween: Tween
+	for id in ["BattleEnemySprite", "BattleAllySprite"]:
+		var sprite := battle_layer.get_node_or_null(id) as Control
+		if sprite != null:
+			if tween == null: tween = create_tween().set_parallel(true)
+			var target := sprite.position
+			sprite.position += Vector2(100 if id == "BattleEnemySprite" else -100,0)
+			sprite.modulate.a = 0.0
+			tween.tween_property(sprite,"position",target,0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			tween.tween_property(sprite,"modulate:a",1.0,0.25)
+	await get_tree().create_timer(0.45).timeout
+	if token != transition.generation: return
+	transition.active = false
+	_set_battle_buttons_locked(false)
+
+
+func _trainer_intro(battle: Dictionary) -> void:
+	var area := "suwon_gym" if battle.kind == "gym_trainer" else "route"
+	var id := ("gym_trainer" if battle.kind == "gym_trainer" else "trainer") + str(battle.trainerId)
+	if battle.kind not in ["trainer", "gym_trainer"]: return
+	for placement in Field.Placement.npcs(area):
+		if placement.id != id: continue
+		var texture := Trainers.battle_texture(placement.get("trainer_type", ""))
+		if texture == null: return
+		var image := TextureRect.new()
+		image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		image.texture = texture
+		image.position = Vector2(824,150)
+		image.size = Vector2(132,176)
+		image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		image.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		battle_layer.add_child(image)

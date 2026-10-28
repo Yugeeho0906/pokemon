@@ -1,0 +1,140 @@
+{
+  "areas": {
+    "incheon": [
+      {
+        "id": "harin",
+        "x": 21.5,
+        "y": 12,
+        "role": "harin"
+      },
+      {
+        "id": "lab",
+        "x": 7,
+        "y": 8,
+        "role": "seohwa",
+        "after_rescue": true
+      }
+    ],
+    "route": [
+      {
+        "id": "healer",
+        "x": 4,
+        "y": 10,
+        "role": "healer"
+      },
+      {
+        "id": "trainer0",
+        "x": 8,
+        "y": 8,
+        "role": "trainer",
+        "trainer_type": "youngster",
+        "facing": "down",
+        "sight": 4
+      },
+      {
+        "id": "trainer1",
+        "x": 11,
+        "y": 12,
+        "role": "trainer",
+        "trainer_type": "student_m",
+        "facing": "up",
+        "sight": 4
+      },
+      {
+        "id": "trainer2",
+        "x": 15,
+        "y": 7,
+        "role": "trainer",
+        "trainer_type": "backpacker",
+        "facing": "down",
+        "sight": 4
+      },
+      {
+        "id": "trainer3",
+        "x": 18,
+        "y": 13,
+        "role": "trainer",
+        "trainer_type": "student_f",
+        "facing": "up",
+        "sight": 4
+      },
+      {
+        "id": "trainer4",
+        "x": 22,
+        "y": 8,
+        "role": "trainer",
+        "trainer_type": "ace_f",
+        "facing": "down",
+        "sight": 4
+      }
+    ],
+    "suwon": [],
+    "suwon_gym": [
+      {
+        "id": "gym_trainer0",
+        "x": 6,
+        "y": 14,
+        "role": "trainer",
+        "trainer_type": "taekwondo",
+        "facing": "right",
+        "sight": 4
+      },
+      {
+        "id": "gym_trainer1",
+        "x": 24,
+        "y": 10,
+        "role": "trainer",
+        "trainer_type": "student_m",
+        "facing": "left",
+        "sight": 4
+      },
+      {
+        "id": "gym_trainer2",
+        "x": 18,
+        "y": 6,
+        "role": "trainer",
+        "trainer_type": "ace_m",
+        "facing": "down",
+        "sight": 4
+      },
+      {
+        "id": "gym_leader",
+        "x": 14,
+        "y": 3,
+        "role": "leader",
+        "character_id": "lee_doyun"
+      }
+    ]
+  },
+  "grass": {
+    "route": {
+      "zones": [
+        [
+          8,
+          4,
+          22,
+          8
+        ],
+        [
+          8,
+          12,
+          22,
+          16
+        ]
+      ],
+      "chance": 0.1,
+      "base_level": 5,
+      "max_level": 10,
+      "species": [
+        {
+          "id": "pidgey",
+          "weight": 50
+        },
+        {
+          "id": "caterpie",
+          "weight": 50
+        }
+      ]
+    }
+  }
+}

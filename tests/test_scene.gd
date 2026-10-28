@@ -66,7 +66,7 @@ func _run() -> void:
 	_expect(not game.menu.visible, "전투 중 지도 열기 차단")
 	await _capture("05-rival-battle")
 	await _test_battle_animation()
-	_win_current_battle()
+	await _win_current_battle()
 	_expect(game.state.flags.rivalWon, "서하린 승리 플래그")
 	_finish_dialogue()
 	_interact_at("gate")
@@ -74,8 +74,8 @@ func _run() -> void:
 	game.fast_travel("suwon")
 	_expect(game.state.area == "route", "미방문 수원 빠른 이동 금지")
 	await _capture("06-route")
-	_test_wild_capture()
-	_test_route_trainers()
+	await _test_wild_capture()
+	await _test_route_trainers()
 	_interact_at("gate")
 	_expect(game.state.area == "suwon", "도로 출구에서 수원 진입")
 	_expect(not game.state.visited.has("suwon"), "단순 도시 진입만으로 센터 등록하지 않음")
@@ -244,6 +244,7 @@ func _test_rescue_and_starter() -> void:
 
 
 func _win_current_battle() -> void:
+	await _wait_battle_transition()
 	# UI 배선 검증을 위한 전투 단축이며 밸런스 테스트가 아닙니다.
 	for enemy in game.state.battle.get("enemyParty", [game.state.battle.enemy]): enemy.hp = 1
 	seed(42)
@@ -254,6 +255,7 @@ func _win_current_battle() -> void:
 		attempts += 1
 	_expect(game.state.battle.outcome == "won", "기술 버튼에서 승리 처리")
 	_click("BattleFinish")
+	await _wait_battle_transition()
 	_expect(game.state.battle == null and not game.battle_layer.visible, "전투 종료 후 필드 복귀")
 
 
@@ -282,7 +284,7 @@ func _test_gym_sequence() -> void:
 		_interact_at("gym_trainer%d" % index)
 		_finish_dialogue()
 		_expect(game.state.battle != null and game.state.battle.kind == "gym_trainer", "체육관 훈련생 전투 시작")
-		_win_current_battle()
+		await _win_current_battle()
 		_finish_dialogue()
 	for plate in ["sun", "mountain", "water"]:
 		_interact_at("gym_plate_"+plate)
@@ -292,7 +294,7 @@ func _test_gym_sequence() -> void:
 	_finish_dialogue()
 	_expect(game.state.battle != null and game.state.battle.enemyParty.size() == 3 and game.state.battle.enemy.species == "pidgey", "관장전 3마리 연속 파티 시작")
 	await _capture("08-gym-battle")
-	_win_current_battle()
+	await _win_current_battle()
 	_finish_dialogue()
 	_expect(game.state.area == "suwon_gym" and game.state.stage == "complete" and game.state.badges == ["성곽배지"], "관장 승리 및 배지 반영")
 
@@ -364,9 +366,13 @@ func _test_special_form_battle_art() -> void:
 func _test_wild_capture() -> void:
 	game.state.player.x = 8.4
 	game.state.player.y = 6.0
-	game.grass_distance = 5.4
+	game.encounters.debug_guaranteed = true
+	game.encounters.area_key = "route"
+	game.encounters.distance = 0.9
 	game.encounter_cooldown = 0
 	game._move(Vector2(0.2, 0))
+	game.encounters.debug_guaranteed = false
+	await _wait_battle_transition()
 	_expect(game.state.battle != null and game.state.battle.kind == "wild", "풀숲 실제 이동으로 야생 조우")
 	var before: int = game.state.bag.balls
 	game.state.battle.enemy.hp = 1
@@ -379,6 +385,7 @@ func _test_wild_capture() -> void:
 	_expect(game.state.battle.outcome == "caught", "가방 몬스터볼 버튼으로 포획")
 	_expect(game.state.bag.balls < before and game.state.party.size() == 3, "포획 아이템 소모와 동료 추가")
 	_click("BattleFinish")
+	await _wait_battle_transition()
 	_expect(game.state.flags.firstCapture, "첫 포획 기록")
 
 
@@ -389,7 +396,7 @@ func _test_route_trainers() -> void:
 		_interact_at("trainer%d" % index)
 		_finish_dialogue()
 		_expect(game.state.battle != null and game.state.battle.trainerId == index, "도로 트레이너 대화 연결 %d" % index)
-		_win_current_battle()
+		await _win_current_battle()
 	_expect(game.state.trainerWins.size() == 5, "다섯 트레이너 격파 저장")
 	var before: int = game.state.bag.potions
 	_interact_at("item")
@@ -467,6 +474,7 @@ func _visible_text(node: Node) -> String:
 
 
 func _capture(name: String) -> void:
+	await _wait_battle_transition()
 	if DisplayServer.get_name() == "headless":
 		return
 	await process_frame
@@ -493,3 +501,10 @@ func _finish() -> void:
 	print("SCENE_TEST_RESULT checks=%d failures=%d screenshots=%d" % [checks, failures, screenshots])
 	print("NOTE: UI flow battles use enemy HP=1; unchanged-stat progression is tested separately.")
 	quit(0 if failures == 0 else 1)
+
+
+func _wait_battle_transition() -> void:
+	var deadline := Time.get_ticks_msec()+4000
+	while game.transition.active and Time.get_ticks_msec() < deadline:
+		await process_frame
+	_expect(not game.transition.active,"배틀 전환 시간 내 완료")

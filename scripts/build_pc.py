@@ -180,7 +180,7 @@ def package_source() -> Path:
                     continue
                 if name == "tests" and path.suffix not in {".gd", ".uid", ".py"}:
                     continue
-                if path.suffix == ".json" and path != ROOT / "game" / "data.json" and path.name not in {"package.json", "package-lock.json"}:
+                if path.suffix == ".json" and path.parent != ROOT / "game" and path.name not in {"package.json", "package-lock.json"}:
                     continue
                 paths.append(path)
     output = DIST / "천년의전설_Godot_프로젝트.zip"

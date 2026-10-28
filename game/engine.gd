@@ -109,7 +109,8 @@ static func start_battle(state: Dictionary, kind: String, species: String = "", 
 				selected = "pidgey" if state.steps % 2 == 0 else "caterpie"
 			if not ["pidgey", "caterpie"].has(selected):
 				return _fail("이 지역에서 만날 수 없는 포켓몬입니다.")
-			level = clampi(5 + state.trainerWins.size(), 5, 10)
+			var config: Dictionary = preload("res://game/field_data.gd").grass_config("route")
+			level = clampi(int(config.base_level) + state.trainerWins.size(), int(config.base_level), int(config.max_level))
 			team_specs.append({"species": selected, "level": level})
 			greeting = "야생 %s가 나타났다!" % get_species(selected).name
 		"rival":

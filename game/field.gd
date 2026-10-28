@@ -2,6 +2,7 @@ class_name LegendField
 extends Node2D
 
 ## 필드 전용 SD 대체 그림과 한옥 타일을 그립니다. 승인 일러스트는 UI에서 별도로 사용합니다.
+const Placement = preload("res://game/field_data.gd")
 const TILE: float = 32.0
 const WORLD_SIZE := Vector2(960, 640)
 const BUILDINGS: Dictionary = {
@@ -26,6 +27,8 @@ const TREE_INTERIOR: Dictionary = {
 }
 
 var state: Dictionary = {}
+var debug_positions := false
+var encounter_shake := 0.0
 var moving: bool = false
 var reduced_motion: bool = false
 var field_font: Font
@@ -65,6 +68,7 @@ func _ready() -> void:
 
 
 func _build_tilemap() -> void:
+	if not ResourceLoader.exists("res://assets/generated/incheon_tileset_32.png"): return
 	var texture := load("res://assets/generated/incheon_tileset_32.png") as Texture2D
 	if texture == null: return
 	atlas_source = TileSetAtlasSource.new()
@@ -210,7 +214,7 @@ static func can_walk(area: String, x: float, y: float, gym_open: bool = false) -
 	return true
 
 static func is_grass(area: String, x: float, y: float) -> bool:
-	return area == "route" and x >= 8 and x <= 22 and ((y >= 4 and y <= 8) or (y >= 12 and y <= 16))
+	return Placement.is_grass(area, Vector2(x, y))
 
 
 static func interactions(game: Dictionary) -> Array[Dictionary]:
@@ -250,6 +254,10 @@ static func interactions(game: Dictionary) -> Array[Dictionary]:
 			{"id": "center", "label": "포켓몬 센터", "x": 10.1, "y": 9.1, "kind": "building"},
 			{"id": "shop", "label": "여행 상점", "x": 15.5, "y": 15.8, "kind": "building"},
 			{"id": "museum", "label": "유물 전시관", "x": 20.6, "y": 5.4, "kind": "building"}])
+	for item in list:
+		for placement in Placement.npcs(area):
+			if item.id == placement.id:
+				item.merge(placement, true)
 	return list
 
 
@@ -758,6 +766,8 @@ func _actor(data: Dictionary) -> void:
 			var character_id: String = str(data.get("character_id", data.role))
 			if actor_sheets.has(character_id):
 				_draw_field_sprite(character_id, data.x, data.ty, str(data.get("facing", "down")), bool(data.get("walking", false)))
+			elif data.role == "leader":
+				_label("이도윤 · 시트 미연결", data.x*TILE-42, data.ty*TILE, 11)
 			else:
 				_person(data.x, data.ty, data.role)
 		"ralts": _ralts_marker(data.x, data.ty, true)
@@ -802,6 +812,14 @@ func _effects(area: String) -> void:
 			_oval(x + sin(_time / 1.7 + i) * 12, y, 2.2, 1.1, "ffe0e9aa", 8)
 	for item in interactions(state):
 		_marker(item)
+		if debug_positions:
+			var p := Vector2(item.x, item.y)*TILE+Vector2(16,16)
+			_paint_target.draw_arc(p, 10, 0, TAU, 16, Color.YELLOW, 2)
+			_label("%s (%.1f,%.1f)" % [item.id,item.x,item.y],p.x-30,p.y+22,10)
+	if debug_positions:
+		for zone in Placement.grass_config(area).get("zones", []):
+			_paint_target.draw_rect(Rect2(Vector2(zone[0],zone[1])*TILE+Vector2(16,16),Vector2(zone[2]-zone[0],zone[3]-zone[1])*TILE),Color.GREEN,false,2)
+
 
 
 func _draw() -> void:
@@ -813,26 +831,34 @@ func _draw() -> void:
 		area = "incheon"
 	_prepare_map(area)
 	var actors: Array[Dictionary] = []
-	if area == "incheon":
-		actors.append({"id": "harin", "y": 400.0, "kind": "person", "x": 20.0, "ty": 12.0, "role": "harin"})
-		if state.get("stage", "prologue") != "prologue":
-			actors.append({"id": "seohwa", "y": 272.0, "kind": "person", "x": 7.0, "ty": 8.0, "role": "seohwa"})
-		else:
-			actors.append({"id": "ralts", "y": 176.0, "kind": "ralts", "x": 23.0, "ty": 5.0})
-	if area == "route":
-		actors.append({"id": "healer", "y": 336.0, "kind": "person", "x": 4.0, "ty": 10.0, "role": "healer"})
-		for i in range(ROUTE_TRAINERS.size()):
-			var point: Vector2 = ROUTE_TRAINERS[i]
-			actors.append({"id": "trainer%d" % i, "y": point.y * TILE + 16, "kind": "person", "x": point.x, "ty": point.y, "role": "trainer"})
-	if area == "suwon_gym":
-		var gym_points: Array[Vector2] = [Vector2(6,6), Vector2(24,6), Vector2(24,12)]
-		for i in range(gym_points.size()):
-			actors.append({"id":"gym-trainer%d" % i,"y":gym_points[i].y*TILE+16,"kind":"person","x":gym_points[i].x,"ty":gym_points[i].y,"role":"trainer"})
-		actors.append({"id":"gym-leader","y":3*TILE+16,"kind":"person","x":14.0,"ty":3.0,"role":"healer"})
+	for item in Placement.npcs(area):
+		if item.get("after_rescue", false) and state.get("stage") == "prologue": continue
+		var actor: Dictionary = item.duplicate(true)
+		actor.ty = item.y
+		actor.y = item.y * TILE + 16
+		actor.kind = "person"
+		actor.character_id = item.get("character_id", item.get("trainer_type", item.role))
+		actors.append(actor)
+	if area == "incheon" and state.get("stage") == "prologue":
+		actors.append({"id":"ralts", "y":176.0, "kind":"ralts", "x":23.0, "ty":5.0})
 	var player: Dictionary = state.get("player", {"x": 14.0, "y": 14.0, "facing": "down"})
 	actors.append({"id": "player", "y": player.y * TILE + 16, "kind": "player"})
 	# 발 위치의 깊이를 사용해 건물·나무 뒤를 자연스럽게 지나갑니다.
 	for actor in actors:
 		_layer("actor-" + actor.id, int(actor.y) + 1, _actor.bind(actor)).queue_redraw()
+	_layer("grass-front", int(player.y*TILE+16)+2, _grass_front).queue_redraw()
 	_layer("water", -900, _water_motion.bind(area)).queue_redraw()
 	_layer("effects", 2000, _effects.bind(area)).queue_redraw()
+
+
+# 원본 맵의 풀잎 픽셀을 발 앞에 다시 그립니다. 새 배경으로 덮어쓰지 않습니다.
+func _grass_front() -> void:
+	if map_backdrop == null or not map_backdrop.visible: return
+	var p: Dictionary = state.player
+	if not is_grass(state.area, p.x, p.y): return
+	var foot := Vector2(p.x*TILE+16, p.y*TILE+16).round()
+	for i in range(6):
+		var sway := roundf(sin(_time*15.0+i)*2.0) if moving and not reduced_motion else 0.0
+		var height := 8.0 + float(i%3)*2.0
+		var rect := Rect2(foot+Vector2(-18+i*6,17-height),Vector2(6,height))
+		_paint_target.draw_texture_rect_region(map_backdrop.texture,Rect2(rect.position+Vector2(sway,0),rect.size),rect)
