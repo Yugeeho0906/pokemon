@@ -11,6 +11,8 @@ func _initialize() -> void:
 	_run("프롤로그와 두 마리 출발", test_progression)
 	_run("서하린의 상성 우위 스타팅", test_rival_starter)
 	_run("18타입 데이터와 피죤투 이름", test_data)
+	_run("한국 전설 수호자 6종 도감 데이터", test_guardian_catalog)
+	_run("한국 리전폼 12종과 신규 메가진화 5종", test_special_form_catalog)
 	_run("5명 트레이너와 재대결", test_trainers)
 	_run("전투 HP와 PP", test_move)
 	_run("불법 행동은 상태를 바꾸지 않음", test_invalid_actions)
@@ -30,6 +32,7 @@ func _initialize() -> void:
 	_run("전투 중 저장 금지", test_battle_save)
 	_run("현재 목표의 단계별 변화", test_objective)
 	_run("세 스타팅의 정상 첫 체육관 진행", test_normal_progression)
+	_run("수원 체육관 3인 훈련과 문양 퍼즐", test_gym_puzzle_and_trainers)
 	_run("진화와 박스 이동 후 고유 출처 저장", test_evolution_and_box_save)
 	_run("일회성 도로 아이템 저장 유지", test_pickup_save)
 	print("ENGINE_TEST_RESULT groups=%d checks=%d failures=%d" % [groups, checks, failures])
@@ -111,6 +114,49 @@ func test_rival_starter() -> void:
 		state.battle.enemy.hp = 1
 		GameEngine.battle_action(state, {"type": "move", "index": 0}, _rng_middle)
 		_expect(state.battle.outcome == "won" and state.flags.rivalWon, "서하린 승리 기록 누락")
+
+
+func test_guardian_catalog() -> void:
+	var expected := {
+		"cheonhwagu": ["fairy", "dark"], "cheonhwarin": ["fairy", "flying"],
+		"wolhwarok": ["grass", "fairy"], "cheonghaeryong": ["water", "dragon"],
+		"geumnyeonhwa": ["ground", "fairy"], "wolhaeryeong": ["ghost", "water"]
+	}
+	for id in expected:
+		var guardian: Dictionary = GameEngine.get_species(id)
+		_expect(not guardian.is_empty(), "%s 수호자 데이터 누락" % id)
+		_expect(guardian.get("types", []) == expected[id], "%s 타입이 기획서와 다름" % id)
+		_expect(bool(guardian.get("storyOnly", false)), "%s가 이후 지역 스토리 전용으로 표시되지 않음" % id)
+		_expect(guardian.get("moves", []).size() == 4, "%s의 수호자 기술 4개 누락" % id)
+
+
+func test_special_form_catalog() -> void:
+	var regional := {
+		"ninetales_korean": ["ghost", "fairy"], "arcanine_korean": ["fire", "rock"],
+		"bronzong_korean": ["steel", "ghost"], "lilligant_korean": ["grass", "fairy"],
+		"noctowl_korean": ["psychic", "flying"], "rapidash_korean": ["water", "fairy"],
+		"chimecho_korean": ["psychic", "fairy"], "absol_korean": ["dark", "ice"],
+		"lucario_korean": ["fighting", "steel"], "falinks_korean": ["fighting", "steel"],
+		"decidueye_korean": ["grass", "ghost"], "milotic_korean": ["water", "dragon"]
+	}
+	var megas := {
+		"mega_ulchangryeong": ["grass", "fairy"], "mega_jinhwarang": ["fire", "fighting"],
+		"mega_haeryushin": ["water", "dragon"], "mega_cheonhwagu": ["fairy", "dark"],
+		"mega_gardevoir_korean_shiny": ["psychic", "fairy"]
+	}
+	for id in regional:
+		var form: Dictionary = GameEngine.get_species(id)
+		_expect(not form.is_empty(), "%s 리전폼 데이터 누락" % id)
+		_expect(form.get("types", []) == regional[id], "%s 리전폼 타입 불일치" % id)
+		_expect(form.get("formKind", "") == "korean-regional" and bool(form.get("storyOnly", false)), "%s 리전폼 잠금 메타데이터 누락" % id)
+		_expect(form.get("assetStatus", "") == "ready", "%s 리전폼 스프라이트 준비 상태 오류" % id)
+	for id in megas:
+		var mega: Dictionary = GameEngine.get_species(id)
+		_expect(not mega.is_empty(), "%s 메가진화 데이터 누락" % id)
+		_expect(mega.get("types", []) == megas[id], "%s 메가진화 타입 불일치" % id)
+		_expect(mega.get("formKind", "") == "mega" and bool(mega.get("requiresMega", false)), "%s 메가진화 조건 메타데이터 누락" % id)
+		_expect(bool(mega.get("storyOnly", false)) and mega.get("assetStatus", "") == "ready", "%s 메가진화 스프라이트 준비 상태 오류" % id)
+	_expect(bool(GameEngine.get_species("mega_gardevoir_korean_shiny").get("requiresShiny", false)), "특수 이로치 메가가디안의 이로치 조건 누락")
 
 
 func test_data() -> void:
@@ -251,9 +297,9 @@ func test_rewards() -> void:
 	var money := int(state.money)
 	for index in range(2):
 		GameEngine.start_battle(state, "gym")
-		_expect(int(state.battle.enemy.level) == 16, "보통 첫 체육관 에이스 Lv.16 불일치")
-		state.battle.enemy.hp = 1
-		GameEngine.battle_action(state, {"type": "move", "index": 0}, _rng_middle)
+		_expect(state.battle.enemyParty.size() == 3, "체육관 관장 3마리 파티 누락")
+		_expect(state.battle.enemyParty.map(func(mon): return int(mon.level)) == [12,14,16], "관장 파티 레벨 계획 불일치")
+		_defeat_all_enemies(state)
 		_expect(state.battle.outcome == "won", "체육관 승리 실패")
 		state.battle = null
 		GameEngine.heal_party(state)
@@ -261,6 +307,25 @@ func test_rewards() -> void:
 	_expect(state.flags.gymWon and state.stage == "complete", "첫 구간 완료 기록 누락")
 	_expect(state.money > money, "승리 보상 누락")
 	_expect(GameEngine.validate_save(GameEngine.serialize_save(state)).ok, "체육관 완료 저장 검증 실패")
+
+
+func test_gym_puzzle_and_trainers() -> void:
+	var state := _caught_state()
+	state.area = "suwon_gym"
+	_expect(not GameEngine.gym_leader_unlocked(state), "체육관 사전 조건 없이 관장 구역 개방")
+	_expect(GameEngine.record_gym_plate(state,"sun").ok and state.gymPuzzleStep == 1, "해 문양 첫 단계 실패")
+	_expect(not GameEngine.record_gym_plate(state,"water").ok and state.gymPuzzleStep == 0, "순서가 틀린 문양 입력을 거부하지 않음")
+	for plate in ["sun", "mountain", "water"]:
+		_expect(GameEngine.record_gym_plate(state,plate).ok, "해→산→물 문양 순서 입력 실패: "+plate)
+	_expect(state.gymPuzzleSolved and state.gymPuzzleStep == 3, "문양 퍼즐 완료 상태 누락")
+	for trainer_id in range(3):
+		_expect(GameEngine.start_battle(state,"gym_trainer","",trainer_id).ok, "체육관 트레이너 전투 시작 실패")
+		_defeat_all_enemies(state)
+		_expect(state.battle.outcome == "won" and state.gymTrainerWins.has(trainer_id), "체육관 트레이너 승리 기록 누락")
+		state.battle = null
+		GameEngine.heal_party(state)
+	_expect(GameEngine.gym_leader_unlocked(state), "세 전투와 퍼즐 해결 뒤 관장 구역 미개방")
+	_expect(GameEngine.validate_save(GameEngine.serialize_save(state)).ok, "체육관 진행 저장 왕복 실패")
 
 
 func test_experience_share() -> void:
@@ -382,6 +447,15 @@ func test_objective() -> void:
 	_expect(GameEngine.get_objective(state).contains("연구소"), "구조 후 목표 오류")
 	GameEngine.choose_starter(state, "padoring")
 	_expect(GameEngine.get_objective(state).contains("서하린"), "스타팅 후 라이벌 목표 누락")
+
+
+func _defeat_all_enemies(state: Dictionary) -> void:
+	for enemy in state.battle.get("enemyParty", [state.battle.enemy]):
+		enemy.hp = 1
+	var turns := 0
+	while state.battle.outcome == "" and turns < 12:
+		GameEngine.battle_action(state, {"type":"move", "index":0}, _rng_middle)
+		turns += 1
 
 
 func _play_battle(state: Dictionary) -> void:

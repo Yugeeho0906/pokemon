@@ -3,6 +3,7 @@ extends SceneTree
 # 화면 연결 검증에서는 이동 거리를 줄이고 전투 상대 HP만 낮춥니다.
 # 수정하지 않은 전투 수치의 완주 검증은 test_engine.gd에서 따로 수행합니다.
 const Field = preload("res://game/field.gd")
+const LegendEngine = preload("res://game/engine.gd")
 
 var game: Node
 var checks := 0
@@ -42,10 +43,13 @@ func _run() -> void:
 	_expect(game.active and game.dialogue_layer.visible, "새 모험 버튼 연결")
 	_finish_dialogue()
 	_expect(game.state.stage == "prologue" and game.state.party.is_empty(), "구조 이전 시작 상태")
+	_test_battle_sprite_assets()
+	_test_field_character_assets()
 	await _capture("02-incheon")
 	await _test_movement()
 	_test_locked_actions()
-	_test_rescue_and_starter()
+	await _test_rescue_cancellation()
+	await _test_rescue_and_starter()
 	await _capture("03-starters")
 	if not _click("Choice_hwarangi"):
 		_finish()
@@ -61,6 +65,7 @@ func _run() -> void:
 	_click("MapButton")
 	_expect(not game.menu.visible, "전투 중 지도 열기 차단")
 	await _capture("05-rival-battle")
+	await _test_battle_animation()
 	_win_current_battle()
 	_expect(game.state.flags.rivalWon, "서하린 승리 플래그")
 	_finish_dialogue()
@@ -81,18 +86,15 @@ func _run() -> void:
 		_expect(mon.hp == mon.maxHp, "센터에서 파티 회복")
 	await _capture("07-suwon")
 	_test_shop_and_box()
-	_interact_at("gym")
-	_finish_dialogue()
-	_expect(game.state.battle != null and game.state.battle.enemy.species == "pidgeot", "체육관 피죤투 전투")
-	await _capture("08-gym-battle")
-	_win_current_battle()
-	_finish_dialogue()
+	await _test_gym_sequence()
 	_expect(game.state.stage == "complete" and game.state.badges == ["성곽배지"], "첫 체육관 완주 배지 지급")
 	_test_save_load()
 	_test_fast_travel()
 	await _capture("09-travel-map")
 	_expect(not _visible_text(game).contains("흑월단 수장") and not _visible_text(game).contains("왕실 후예"), "초반 화면에 후반 반전 노출 없음")
 	_click("CloseMenu")
+	await _test_guardian_battle_art()
+	await _test_special_form_battle_art()
 	_click("SaveButton")
 	await _capture("10-save-menu")
 	_finish()
@@ -135,16 +137,36 @@ func _interact_at(id: String) -> void:
 	_expect(false, "상호작용 지점 존재: " + id)
 
 
+func _test_battle_sprite_assets() -> void:
+	var species := ["ralts","purunae","hwarangi","padoring","pidgey","caterpie","pidgeotto","pidgeot","purusori","ulchangryeong","bulhoryeong","jinhwarang","mulgyeoldari","haeryushin","kirlia","gardevoir","metapod","butterfree","cheonhwagu","cheonhwarin","wolhwarok","cheonghaeryong","geumnyeonhwa","wolhaeryeong","ninetales_korean","arcanine_korean","bronzong_korean","lilligant_korean","noctowl_korean","rapidash_korean","chimecho_korean","absol_korean","lucario_korean","falinks_korean","decidueye_korean","milotic_korean","mega_ulchangryeong","mega_jinhwarang","mega_haeryushin","mega_cheonhwagu","mega_gardevoir_korean_shiny"]
+	for id in species:
+		_expect(ResourceLoader.exists("res://assets/generated/battle/%s_front.png" % id), "전투 앞면 스프라이트: "+id)
+		_expect(ResourceLoader.exists("res://assets/generated/battle/%s_back.png" % id), "전투 뒷면 스프라이트: "+id)
+
+
+func _test_field_character_assets() -> void:
+	var expected := ["player", "harin", "seohwa", "seol_yuna", "yun_seorin", "moon_si_yeon", "hae_nari", "erika", "reina", "kaien", "shiori", "se_arin", "ren_kaito", "karen_yuzuhwa", "shin_tsukasa"]
+	for id in expected:
+		var texture: Texture2D = game.field.actor_sheets.get(id)
+		_expect(texture != null, "필드 캐릭터 아틀라스 로딩: " + id)
+		if texture != null:
+			_expect(texture.get_width() == 192 and texture.get_height() == 144, "필드 캐릭터 4×3 48px 규격: " + id)
+
+
 func _test_movement() -> void:
 	var initial_x: float = game.state.player.x
-	var key := InputEventKey.new()
-	key.keycode = KEY_D
-	key.physical_keycode = KEY_D
-	key.pressed = true
-	Input.parse_input_event(key)
+	var press_key := InputEventKey.new()
+	press_key.keycode = KEY_D
+	press_key.physical_keycode = KEY_D
+	press_key.pressed = true
+	Input.parse_input_event(press_key)
+	await process_frame
 	await create_timer(0.12).timeout
-	key.pressed = false
-	Input.parse_input_event(key)
+	var release_key := InputEventKey.new()
+	release_key.keycode = KEY_D
+	release_key.physical_keycode = KEY_D
+	release_key.pressed = false
+	Input.parse_input_event(release_key)
 	await process_frame
 	_expect(game.state.player.x > initial_x, "D 키 입력으로 실제 프레임 이동")
 	game.state.player.x = 17.95
@@ -175,12 +197,45 @@ func _test_locked_actions() -> void:
 	_expect(game.state.party.is_empty() and not game.menu.visible, "구조 이전 스타팅 선택 차단")
 
 
+func _test_rescue_cancellation() -> void:
+	_interact_at("ralts")
+	_expect(game.cinematic_active and game.dialogue_layer.visible, "랄토스 컷신이 활성화된 상태")
+	game.open_save()
+	_expect(not game.menu.visible, "컷신 중 저장 메뉴 차단")
+	var reset_path := artifacts + "/cancel-rescue.json"
+	var file := FileAccess.open(reset_path, FileAccess.WRITE)
+	file.store_string(LegendEngine.serialize_save(LegendEngine.create_game()))
+	file.close()
+	_expect(game.load_game(reset_path), "컷신 중 불러오기가 연출을 정리하고 저장 상태 복원")
+	_expect(not game.cinematic_active and game.field.cinematic_mode.is_empty() and game.field.scale == Vector2.ONE and game.field.position == Vector2.ZERO, "불러오기에서 컷신 임시 상태 원복")
+	# 이전 코루틴이 기다리던 전역 dialogue_closed 신호를 새 대화로 발생시켜도 재개되지 않아야 합니다.
+	game.show_dialogue([{"speaker":"회귀 검사", "text":"이전 컷신을 다시 시작하지 않습니다."}])
+	_finish_dialogue()
+	await process_frame
+	_expect(game.state.stage == "prologue" and game.state.party.is_empty() and not game.cinematic_active, "무효화된 구조 코루틴이 새 저장 상태를 변경하지 않음")
+
+
+func _wait_dialogue_open() -> void:
+	for frame in range(1200):
+		if game.dialogue_layer.visible: return
+		await process_frame
+	_expect(game.dialogue_layer.visible, "비동기 이벤트 다음 대화 표시")
+
+
 func _test_rescue_and_starter() -> void:
 	_interact_at("ralts")
 	_expect(game.dialogue_layer.visible, "랄토스 구조 대화 시작")
 	_finish_dialogue()
+	await _wait_dialogue_open()
+	await _capture("02a-ralts-traces")
+	_finish_dialogue()
+	await _wait_dialogue_open()
+	await _capture("02b-ralts-rescue")
+	_finish_dialogue()
+	await game.rescue_event_finished
 	_expect(game.state.stage == "rescued" and game.state.party.size() == 1, "구조 이벤트 상태 반영")
 	_expect(game.state.party[0].shiny and game.state.party[0].source == "incheon-rescue", "특별한 이로치 랄토스 출처")
+	_finish_dialogue()
 	_interact_at("lab")
 	_finish_dialogue()
 	_expect(game.menu.visible, "연구소 대화에서 스타팅 메뉴 연결")
@@ -190,13 +245,120 @@ func _test_rescue_and_starter() -> void:
 
 func _win_current_battle() -> void:
 	# UI 배선 검증을 위한 전투 단축이며 밸런스 테스트가 아닙니다.
-	game.state.battle.enemy.hp = 1
+	for enemy in game.state.battle.get("enemyParty", [game.state.battle.enemy]): enemy.hp = 1
 	seed(42)
 	_click("FightButton")
-	_click("BattleMove_0")
+	var attempts := 0
+	while game.state.battle != null and game.state.battle.outcome == "" and attempts < 12:
+		_click("BattleMove_0")
+		attempts += 1
 	_expect(game.state.battle.outcome == "won", "기술 버튼에서 승리 처리")
 	_click("BattleFinish")
 	_expect(game.state.battle == null and not game.battle_layer.visible, "전투 종료 후 필드 복귀")
+
+
+func _test_battle_animation() -> void:
+	game.state.battle.enemy.maxHp = 999
+	game.state.battle.enemy.hp = 999
+	_click("FightButton")
+	_click("BattleMove_0")
+	await create_timer(0.15).timeout
+	_expect(game.find_child("BattleImpact", true, false) != null, "기술 사용 시 타입별 타격 이펙트 표시")
+	await _capture("05b-battle-impact")
+	await create_timer(0.55).timeout
+	_expect(game.find_child("BattleImpact", true, false) == null, "타격 이펙트가 종료 후 정리")
+	game.battle_page = "main"
+	game.render_battle()
+
+
+func _test_gym_sequence() -> void:
+	_interact_at("gym")
+	for frame in range(8):
+		if game.field.tile_map_layer.visible or game.field.map_backdrop.visible: break
+		await process_frame
+	_expect(game.state.area == "suwon_gym" and (game.field.tile_map_layer.visible or game.field.map_backdrop.visible), "수원 실내 픽셀맵 진입")
+	await _capture("08-gym-interior")
+	for index in range(3):
+		_interact_at("gym_trainer%d" % index)
+		_finish_dialogue()
+		_expect(game.state.battle != null and game.state.battle.kind == "gym_trainer", "체육관 훈련생 전투 시작")
+		_win_current_battle()
+		_finish_dialogue()
+	for plate in ["sun", "mountain", "water"]:
+		_interact_at("gym_plate_"+plate)
+		_finish_dialogue()
+	_expect(game.state.gymPuzzleSolved and game.state.gymTrainerWins.size() == 3, "체육관 문양·훈련생 조건 완료")
+	_interact_at("gym_leader")
+	_finish_dialogue()
+	_expect(game.state.battle != null and game.state.battle.enemyParty.size() == 3 and game.state.battle.enemy.species == "pidgey", "관장전 3마리 연속 파티 시작")
+	await _capture("08-gym-battle")
+	_win_current_battle()
+	_finish_dialogue()
+	_expect(game.state.area == "suwon_gym" and game.state.stage == "complete" and game.state.badges == ["성곽배지"], "관장 승리 및 배지 반영")
+
+
+func _test_guardian_battle_art() -> void:
+	if game.menu.visible:
+		_click("CloseMenu")
+	var start := LegendEngine.start_battle(game.state, "wild", "pidgey")
+	_expect(start.ok, "수호자 스프라이트 테스트용 전투 시작")
+	if not start.ok: return
+	var active_index: int = int(game.state.battle.active)
+	var original_lead: Dictionary = game.state.party[active_index].duplicate(true)
+	var guardian_lead: Dictionary = original_lead.duplicate(true)
+	var ally_data: Dictionary = LegendEngine.get_species("cheonhwagu")
+	guardian_lead.species = "cheonhwagu"
+	guardian_lead.name = ally_data.name
+	guardian_lead.moves = []
+	for move_id in ally_data.moves:
+		guardian_lead.moves.append({"id": move_id, "pp": int(LegendEngine.get_move(move_id).pp), "maxPp": int(LegendEngine.get_move(move_id).pp)})
+	game.state.party[active_index] = guardian_lead
+	var enemy: Dictionary = game.state.battle.enemy
+	enemy.species = "wolhaeryeong"
+	enemy.name = LegendEngine.get_species("wolhaeryeong").name
+	game.state.battle.enemy = enemy
+	game.state.battle.enemyParty[0] = enemy
+	game.render_battle()
+	var ally_sprite := game.find_child("BattleAllySprite", true, false) as TextureRect
+	var enemy_sprite := game.find_child("BattleEnemySprite", true, false) as TextureRect
+	_expect(ally_sprite != null and ally_sprite.texture != null, "천화구 후면 스프라이트 렌더")
+	_expect(enemy_sprite != null and enemy_sprite.texture != null, "월해령 전면 스프라이트 렌더")
+	await _capture("11-guardian-battle")
+	game.state.party[active_index] = original_lead
+	game.state.battle = null
+	game.render_battle()
+	game.refresh_hud()
+
+
+func _test_special_form_battle_art() -> void:
+	var start := LegendEngine.start_battle(game.state, "wild", "pidgey")
+	_expect(start.ok, "특수 폼 스프라이트 테스트용 전투 시작")
+	if not start.ok: return
+	var active_index: int = int(game.state.battle.active)
+	var original_lead: Dictionary = game.state.party[active_index].duplicate(true)
+	var regional_lead: Dictionary = original_lead.duplicate(true)
+	var regional_data: Dictionary = LegendEngine.get_species("lilligant_korean")
+	regional_lead.species = "lilligant_korean"
+	regional_lead.name = regional_data.name
+	regional_lead.moves = []
+	for move_id in regional_data.moves:
+		regional_lead.moves.append({"id": move_id, "pp": int(LegendEngine.get_move(move_id).pp), "maxPp": int(LegendEngine.get_move(move_id).pp)})
+	game.state.party[active_index] = regional_lead
+	var enemy: Dictionary = game.state.battle.enemy
+	enemy.species = "mega_gardevoir_korean_shiny"
+	enemy.name = LegendEngine.get_species("mega_gardevoir_korean_shiny").name
+	game.state.battle.enemy = enemy
+	game.state.battle.enemyParty[0] = enemy
+	game.render_battle()
+	var ally_sprite := game.find_child("BattleAllySprite", true, false) as TextureRect
+	var enemy_sprite := game.find_child("BattleEnemySprite", true, false) as TextureRect
+	_expect(ally_sprite != null and ally_sprite.texture != null, "드레디어 한국폼 후면 스프라이트 렌더")
+	_expect(enemy_sprite != null and enemy_sprite.texture != null, "특수 이로치 메가가디안 전면 스프라이트 렌더")
+	await _capture("12-special-forms-battle")
+	game.state.party[active_index] = original_lead
+	game.state.battle = null
+	game.render_battle()
+	game.refresh_hud()
 
 
 func _test_wild_capture() -> void:

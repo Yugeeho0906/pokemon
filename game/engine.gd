@@ -33,11 +33,12 @@ static func all_species() -> Dictionary:
 static func create_game() -> Dictionary:
 	return {
 		"version": SAVE_VERSION, "stage": "prologue", "area": "incheon",
-		"player": {"x": 14, "y": 14, "facing": "down"},
+		"player": {"x": 20, "y": 10, "facing": "down"},
 		"party": [], "box": [], "bag": {"balls": 12, "potions": 8},
 		"money": 1500, "badges": [], "seen": [], "caught": [],
 		"flags": {"rescued": false, "starterChosen": false, "firstCapture": false, "gymWon": false, "rivalWon": false, "routeItem": false},
 		"steps": 0, "battle": null, "starter": "", "trainerWins": [],
+		"gymTrainerWins": [], "gymPuzzleStep": 0, "gymPuzzleSolved": false,
 		"visited": ["incheon"], "difficulty": "normal"
 	}
 
@@ -92,7 +93,7 @@ static func start_battle(state: Dictionary, kind: String, species: String = "", 
 		return _fail("진행 중인 전투를 먼저 마쳐 주세요.")
 	if not state.flags.starterChosen:
 		return _fail("연구소에서 스타팅을 선택한 뒤 모험을 시작해요.")
-	if not ["wild", "rival", "trainer", "gym"].has(kind):
+	if not ["wild", "rival", "trainer", "gym_trainer", "gym"].has(kind):
 		return _fail("시작할 수 없는 전투입니다.")
 	var active: int = _first_alive(state.party)
 	if active < 0:
@@ -100,6 +101,8 @@ static func start_battle(state: Dictionary, kind: String, species: String = "", 
 	var selected := species
 	var level := 5
 	var greeting := ""
+	var trainer_name := ""
+	var team_specs: Array[Dictionary] = []
 	match kind:
 		"wild":
 			if selected == "":
@@ -107,27 +110,55 @@ static func start_battle(state: Dictionary, kind: String, species: String = "", 
 			if not ["pidgey", "caterpie"].has(selected):
 				return _fail("이 지역에서 만날 수 없는 포켓몬입니다.")
 			level = clampi(5 + state.trainerWins.size(), 5, 10)
+			team_specs.append({"species": selected, "level": level})
 			greeting = "야생 %s가 나타났다!" % get_species(selected).name
 		"rival":
 			selected = {"purunae": "hwarangi", "hwarangi": "padoring", "padoring": "purunae"}[state.starter]
 			level = 6
+			team_specs.append({"species": selected, "level": level})
+			trainer_name = "서하린"
 			greeting = "서하린이 %s를 내보냈다!" % get_species(selected).name
 		"trainer":
 			if trainer_id < 0 or trainer_id >= 5:
 				return _fail("존재하지 않는 트레이너입니다.")
 			selected = TRAINER_SPECIES[trainer_id]
 			level = TRAINER_LEVELS[trainer_id]
-			greeting = "1번도로 트레이너 %d가 %s를 내보냈다!" % [trainer_id + 1, get_species(selected).name]
+			team_specs.append({"species": selected, "level": level})
+			trainer_name = "1번도로 트레이너 %d" % (trainer_id + 1)
+			greeting = "%s가 %s를 내보냈다!" % [trainer_name, get_species(selected).name]
+		"gym_trainer":
+			if trainer_id < 0 or trainer_id >= 3:
+				return _fail("존재하지 않는 수원 체육관 트레이너입니다.")
+			var gym_teams: Array = [
+				[{"species":"pidgey", "level":9}],
+				[{"species":"pidgey", "level":10}, {"species":"pidgeotto", "level":11}],
+				[{"species":"pidgeotto", "level":12}]
+			]
+			team_specs.assign(gym_teams[trainer_id])
+			trainer_name = ["수비대 훈련생 민준", "성문 안내원 지아", "성곽 순찰자 도윤"] [trainer_id]
+			selected = team_specs[0].species
+			greeting = "%s이(가) 도전을 받아들였다! %s 출전!" % [trainer_name, get_species(selected).name]
 		"gym":
-			selected = "pidgeot"
-			level = 16
-			greeting = "수원 체육관 관장 이도윤이 피죤투를 내보냈다!"
+			team_specs = [
+				{"species":"pidgey", "level":12},
+				{"species":"pidgeotto", "level":14},
+				{"species":"pidgeot", "level":16}
+			]
+			trainer_name = "수원 체육관 관장 이도윤"
+			selected = "pidgey"
+			greeting = "이도윤이 첫 동료 구구를 내보냈다!"
 	if kind != "wild":
-		level += {"easy": -2, "normal": 0, "hard": 2}.get(state.difficulty, 0)
-	var enemy: Dictionary = _make_creature(selected, maxi(2, level))
-	_add_unique(state.seen, selected)
+		var adjustment: int = {"easy": -2, "normal": 0, "hard": 2}.get(state.difficulty, 0)
+		for member in team_specs:
+			member.level = maxi(2, int(member.level) + adjustment)
+	var enemy_team: Array[Dictionary] = []
+	for member in team_specs:
+		var mon: Dictionary = _make_creature(str(member.species), int(member.level))
+		enemy_team.append(mon)
+		_add_unique(state.seen, str(member.species))
 	state.battle = {
-		"kind": kind, "enemy": enemy, "active": active, "turn": 0, "logs": [greeting],
+		"kind": kind, "enemy": enemy_team[0], "enemyParty": enemy_team, "enemyIndex": 0,
+		"trainerName": trainer_name, "active": active, "turn": 0, "logs": [greeting],
 		"outcome": "", "trainerId": trainer_id, "participants": [active], "rewards": [],
 		"stages": {"player": {"attack": 0, "defense": 0, "speed": 0}, "enemy": {"attack": 0, "defense": 0, "speed": 0}}
 	}
@@ -256,9 +287,18 @@ static func _evolve(state: Dictionary, mon: Dictionary, logs: Array) -> void:
 static func _finish_if_needed(state: Dictionary, logs: Array) -> bool:
 	var battle: Dictionary = state.battle
 	if battle.enemy.hp <= 0:
-		battle.outcome = "won"
-		logs.append("%s는 쓰러졌다! 전투에서 승리했다." % battle.enemy.name)
+		logs.append("%s는 쓰러졌다!" % battle.enemy.name)
 		_give_experience(state, logs)
+		var enemy_index: int = int(battle.get("enemyIndex", 0))
+		var enemy_party: Array = battle.get("enemyParty", [battle.enemy])
+		if enemy_index + 1 < enemy_party.size():
+			battle.enemyIndex = enemy_index + 1
+			battle.enemy = enemy_party[battle.enemyIndex]
+			battle.stages.enemy = {"attack": 0, "defense": 0, "speed": 0}
+			logs.append("%s이(가) %s를 내보냈다!" % [battle.get("trainerName", "상대"), battle.enemy.name])
+			return false
+		battle.outcome = "won"
+		logs.append("전투에서 승리했다!")
 		state.money = mini(999999, state.money + (600 if battle.kind == "gym" else 160 if battle.kind != "wild" else 80))
 		match battle.kind:
 			"gym":
@@ -271,6 +311,8 @@ static func _finish_if_needed(state: Dictionary, logs: Array) -> bool:
 				logs.append("서하린: 다음에는 내가 이길 거야! 수원에서 다시 만나자.")
 			"trainer":
 				_add_unique(state.trainerWins, battle.trainerId)
+			"gym_trainer":
+				_add_unique(state.gymTrainerWins, battle.trainerId)
 		return true
 	var player: Dictionary = state.party[battle.active]
 	if player.hp > 0:
@@ -408,8 +450,9 @@ static func battle_action(state: Dictionary, action: Dictionary, rng: Callable =
 			var foe_priority: int = int(get_move(foe_move).get("priority", 0))
 			var first: bool = own_priority > foe_priority if own_priority != foe_priority else _stat(player, "speed", battle.stages.player) >= _stat(battle.enemy, "speed", battle.stages.enemy)
 			var initial_active: int = battle.active
+			var initial_enemy: int = battle.get("enemyIndex", 0)
 			_attack(state, first, move_id if first else foe_move, rng, logs)
-			if not _finish_if_needed(state, logs) and battle.active == initial_active:
+			if not _finish_if_needed(state, logs) and battle.active == initial_active and battle.get("enemyIndex", 0) == initial_enemy:
 				_attack(state, not first, foe_move if first else move_id, rng, logs)
 				_finish_if_needed(state, logs)
 		else:
@@ -450,6 +493,27 @@ static func buy_item(state: Dictionary, item: String) -> Dictionary:
 	state.bag[item] += 1
 	return _ok("%s을 구입했습니다." % ("몬스터볼" if item == "balls" else "상처약"))
 
+static func record_gym_plate(state: Dictionary, plate: String) -> Dictionary:
+	if state.get("area", "") != "suwon_gym" or state.get("gymPuzzleSolved", false):
+		return _fail("지금은 문양을 조작할 수 없습니다.")
+	var sequence := ["sun", "mountain", "water"]
+	var step: int = int(state.get("gymPuzzleStep", 0))
+	if plate == sequence[step]:
+		step += 1
+		state.gymPuzzleStep = step
+		if step == sequence.size():
+			state.gymPuzzleSolved = true
+			return _ok("세 문양이 차례로 빛나며 안쪽 성문이 열렸습니다!")
+		return _ok("문양이 희미하게 빛났습니다. 다음 단서를 따라가세요.")
+	state.gymPuzzleStep = 0
+	state.gymPuzzleSolved = false
+	return _fail("문양이 꺼졌습니다. 안내석의 순서를 다시 확인하세요.")
+
+
+static func gym_leader_unlocked(state: Dictionary) -> bool:
+	return state.get("gymTrainerWins", []).size() >= 3 and state.get("gymPuzzleSolved", false)
+
+
 static func get_objective(state: Dictionary) -> String:
 	if state.stage == "prologue":
 		return "숲의 빛을 따라가 다친 랄토스를 찾아주세요."
@@ -460,7 +524,7 @@ static func get_objective(state: Dictionary) -> String:
 	if state.trainerWins.size() < 5:
 		return "1번도로를 탐험하며 트레이너에게 도전하세요. (%d/5)" % state.trainerWins.size()
 	if not state.flags.gymWon:
-		return "동료들을 회복하고 수원 체육관의 이도윤에게 도전하세요."
+		return "수원 체육관에서 훈련생 3명과 문양 퍼즐을 해결한 뒤 이도윤에게 도전하세요."
 	return "성곽배지 획득! 첫 여정을 마쳤습니다. 자유롭게 탐험해 보세요."
 
 # JSON은 읽기 성공 여부와 별개로 각 필드를 검증하고 새 사전으로 재구성한다.
@@ -521,7 +585,7 @@ static func validate_save(input: Variant) -> Dictionary:
 		return _invalid("호환되지 않는 저장 버전")
 	if not value.has("battle") or value.battle != null:
 		return _invalid("전투 중 저장은 지원하지 않습니다")
-	if not ["prologue", "rescued", "journey", "complete"].has(value.get("stage")) or not ["incheon", "route", "suwon"].has(value.get("area")):
+	if not ["prologue", "rescued", "journey", "complete"].has(value.get("stage")) or not ["incheon", "route", "suwon", "suwon_gym"].has(value.get("area")):
 		return _invalid("잘못된 진행 단계 또는 지역")
 	if not value.get("player") is Dictionary:
 		return _invalid("잘못된 위치")
@@ -606,6 +670,18 @@ static func validate_save(input: Variant) -> Dictionary:
 		if not _integer(id, 0, 4) or wins.has(int(id)):
 			return _invalid("잘못된 트레이너 기록")
 		wins.append(int(id))
+	var gym_wins_raw: Variant = value.get("gymTrainerWins", [])
+	if not gym_wins_raw is Array or gym_wins_raw.size() > 3:
+		return _invalid("잘못된 체육관 트레이너 기록")
+	var gym_wins: Array = []
+	for id in gym_wins_raw:
+		if not _integer(id, 0, 2) or gym_wins.has(int(id)):
+			return _invalid("잘못된 체육관 트레이너 기록")
+		gym_wins.append(int(id))
+	var puzzle_step_raw: Variant = value.get("gymPuzzleStep", 0)
+	var puzzle_solved_raw: Variant = value.get("gymPuzzleSolved", false)
+	if not _integer(puzzle_step_raw, 0, 3) or not puzzle_solved_raw is bool or bool(puzzle_solved_raw) != (int(puzzle_step_raw) == 3):
+		return _invalid("잘못된 체육관 퍼즐 기록")
 	if not value.get("visited") is Array or not value.visited.has("incheon") or value.visited.size() > 3:
 		return _invalid("잘못된 방문 기록")
 	var visited: Array = []
@@ -613,7 +689,7 @@ static func validate_save(input: Variant) -> Dictionary:
 		if not ["incheon", "route", "suwon"].has(place) or visited.has(place):
 			return _invalid("잘못된 방문 기록")
 		visited.append(place)
-	var state: Dictionary = {"version": SAVE_VERSION, "stage": value.stage, "area": value.area, "player": {"x": float(p.x), "y": float(p.y), "facing": p.facing}, "party": party, "box": box, "bag": {"balls": int(value.bag.balls), "potions": int(value.bag.potions)}, "money": int(value.money), "badges": value.badges.duplicate(), "seen": value.seen.duplicate(), "caught": value.caught.duplicate(), "flags": flags, "steps": int(value.steps), "battle": null, "starter": value.starter, "trainerWins": wins, "visited": visited, "difficulty": value.difficulty}
+	var state: Dictionary = {"version": SAVE_VERSION, "stage": value.stage, "area": value.area, "player": {"x": float(p.x), "y": float(p.y), "facing": p.facing}, "party": party, "box": box, "bag": {"balls": int(value.bag.balls), "potions": int(value.bag.potions)}, "money": int(value.money), "badges": value.badges.duplicate(), "seen": value.seen.duplicate(), "caught": value.caught.duplicate(), "flags": flags, "steps": int(value.steps), "battle": null, "starter": value.starter, "trainerWins": wins, "gymTrainerWins": gym_wins, "gymPuzzleStep": int(puzzle_step_raw), "gymPuzzleSolved": puzzle_solved_raw, "visited": visited, "difficulty": value.difficulty}
 	return {"ok": true, "state": state, "error": ""}
 
 static func serialize_save(state: Dictionary) -> String:

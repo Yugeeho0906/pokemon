@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "note": "통합 기획 v2 첫 체육관 개발용 임시 밸런스. 정식 종족값·기술표가 아닙니다.",
+  "note": "통합 기획 v2 첫 체육관 개발용 임시 밸런스와 이후 지역 수호자 도감 데이터. 정식 종족값·기술표가 아닙니다.",
   "typeChart": {
     "normal": {
       "rock": 0.5,
@@ -273,6 +273,114 @@
       "pp": 1,
       "category": "physical",
       "effect": "recoil"
+    },
+    "darkPulse": {
+      "id": "darkPulse",
+      "name": "악의파동",
+      "type": "dark",
+      "power": 80,
+      "accuracy": 1,
+      "pp": 15,
+      "category": "special"
+    },
+    "moonblast": {
+      "id": "moonblast",
+      "name": "문포스",
+      "type": "fairy",
+      "power": 95,
+      "accuracy": 1,
+      "pp": 15,
+      "category": "special"
+    },
+    "airSlash": {
+      "id": "airSlash",
+      "name": "에어슬래시",
+      "type": "flying",
+      "power": 75,
+      "accuracy": 0.95,
+      "pp": 15,
+      "category": "special"
+    },
+    "leafBlade": {
+      "id": "leafBlade",
+      "name": "리프블레이드",
+      "type": "grass",
+      "power": 90,
+      "accuracy": 1,
+      "pp": 15,
+      "category": "physical"
+    },
+    "dragonPulse": {
+      "id": "dragonPulse",
+      "name": "용의파동",
+      "type": "dragon",
+      "power": 85,
+      "accuracy": 1,
+      "pp": 10,
+      "category": "special"
+    },
+    "earthPower": {
+      "id": "earthPower",
+      "name": "대지의힘",
+      "type": "ground",
+      "power": 90,
+      "accuracy": 1,
+      "pp": 10,
+      "category": "special"
+    },
+    "shadowBall": {
+      "id": "shadowBall",
+      "name": "섀도볼",
+      "type": "ghost",
+      "power": 80,
+      "accuracy": 1,
+      "pp": 15,
+      "category": "special"
+    },
+    "surf": {
+      "id": "surf",
+      "name": "파도타기",
+      "type": "water",
+      "power": 90,
+      "accuracy": 1,
+      "pp": 15,
+      "category": "special"
+    },
+    "rockSlide": {
+      "id": "rockSlide",
+      "name": "스톤샤워",
+      "type": "rock",
+      "power": 75,
+      "accuracy": 0.9,
+      "pp": 10,
+      "category": "physical"
+    },
+    "metalClaw": {
+      "id": "metalClaw",
+      "name": "메탈크로우",
+      "type": "steel",
+      "power": 50,
+      "accuracy": 0.95,
+      "pp": 35,
+      "category": "physical"
+    },
+    "auraSphere": {
+      "id": "auraSphere",
+      "name": "파동탄",
+      "type": "fighting",
+      "power": 80,
+      "accuracy": 1,
+      "pp": 20,
+      "category": "special"
+    },
+    "iceBeam": {
+      "id": "iceBeam",
+      "name": "냉동빔",
+      "type": "ice",
+      "power": 90,
+      "accuracy": 1,
+      "pp": 10,
+      "category": "special"
     }
   },
   "species": {
@@ -627,6 +735,569 @@
         "tackle",
         "stringShot"
       ]
+    },
+    "cheonhwagu": {
+      "id": "cheonhwagu",
+      "name": "천화구",
+      "types": [
+        "fairy",
+        "dark"
+      ],
+      "color": "#ede0d0",
+      "hp": 74,
+      "attack": 88,
+      "defense": 77,
+      "speed": 89,
+      "moves": [
+        "moonblast",
+        "darkPulse",
+        "quickAttack",
+        "growl"
+      ],
+      "codexCategory": "전설 수호자",
+      "storyOnly": true,
+      "encounter": "future-guardian"
+    },
+    "cheonhwarin": {
+      "id": "cheonhwarin",
+      "name": "천화린",
+      "types": [
+        "fairy",
+        "flying"
+      ],
+      "color": "#f3c4de",
+      "hp": 72,
+      "attack": 78,
+      "defense": 75,
+      "speed": 102,
+      "moves": [
+        "moonblast",
+        "airSlash",
+        "quickAttack",
+        "growl"
+      ],
+      "codexCategory": "전설 수호자",
+      "storyOnly": true,
+      "encounter": "future-guardian"
+    },
+    "wolhwarok": {
+      "id": "wolhwarok",
+      "name": "월화록",
+      "types": [
+        "grass",
+        "fairy"
+      ],
+      "color": "#749c6a",
+      "hp": 82,
+      "attack": 90,
+      "defense": 92,
+      "speed": 76,
+      "moves": [
+        "leafBlade",
+        "moonblast",
+        "vineWhip",
+        "quickAttack"
+      ],
+      "codexCategory": "전설 수호자",
+      "storyOnly": true,
+      "encounter": "future-guardian"
+    },
+    "cheonghaeryong": {
+      "id": "cheonghaeryong",
+      "name": "청해룡",
+      "types": [
+        "water",
+        "dragon"
+      ],
+      "color": "#4f9fcb",
+      "hp": 88,
+      "attack": 96,
+      "defense": 83,
+      "speed": 84,
+      "moves": [
+        "surf",
+        "dragonPulse",
+        "waterGun",
+        "quickAttack"
+      ],
+      "codexCategory": "전설 수호자",
+      "storyOnly": true,
+      "encounter": "future-guardian"
+    },
+    "geumnyeonhwa": {
+      "id": "geumnyeonhwa",
+      "name": "금련화",
+      "types": [
+        "ground",
+        "fairy"
+      ],
+      "color": "#d8b968",
+      "hp": 95,
+      "attack": 88,
+      "defense": 110,
+      "speed": 60,
+      "moves": [
+        "earthPower",
+        "moonblast",
+        "tackle",
+        "growl"
+      ],
+      "codexCategory": "전설 수호자",
+      "storyOnly": true,
+      "encounter": "future-guardian"
+    },
+    "wolhaeryeong": {
+      "id": "wolhaeryeong",
+      "name": "월해령",
+      "types": [
+        "ghost",
+        "water"
+      ],
+      "color": "#6559a6",
+      "hp": 78,
+      "attack": 82,
+      "defense": 80,
+      "speed": 100,
+      "moves": [
+        "shadowBall",
+        "surf",
+        "confusion",
+        "waterGun"
+      ],
+      "codexCategory": "전설 수호자",
+      "storyOnly": true,
+      "encounter": "future-guardian"
+    },
+    "ninetales_korean": {
+      "name": "나인테일(한국폼)",
+      "types": [
+        "ghost",
+        "fairy"
+      ],
+      "color": "#f0e3df",
+      "hp": 73,
+      "attack": 70,
+      "defense": 78,
+      "speed": 96,
+      "moves": [
+        "shadowBall",
+        "moonblast",
+        "confusion",
+        "quickAttack"
+      ],
+      "formOf": "ninetales",
+      "formKind": "korean-regional",
+      "id": "ninetales_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "arcanine_korean": {
+      "name": "윈디(한국폼)",
+      "types": [
+        "fire",
+        "rock"
+      ],
+      "color": "#d38567",
+      "hp": 90,
+      "attack": 105,
+      "defense": 85,
+      "speed": 90,
+      "moves": [
+        "ember",
+        "rockSlide",
+        "tackle",
+        "quickAttack"
+      ],
+      "formOf": "arcanine",
+      "formKind": "korean-regional",
+      "id": "arcanine_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "bronzong_korean": {
+      "name": "동탁군(한국폼)",
+      "types": [
+        "steel",
+        "ghost"
+      ],
+      "color": "#6a827d",
+      "hp": 80,
+      "attack": 89,
+      "defense": 110,
+      "speed": 38,
+      "moves": [
+        "metalClaw",
+        "shadowBall",
+        "confusion",
+        "tackle"
+      ],
+      "formOf": "bronzong",
+      "formKind": "korean-regional",
+      "id": "bronzong_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "lilligant_korean": {
+      "name": "드레디어(한국폼)",
+      "types": [
+        "grass",
+        "fairy"
+      ],
+      "color": "#d98e9e",
+      "hp": 70,
+      "attack": 65,
+      "defense": 75,
+      "speed": 90,
+      "moves": [
+        "vineWhip",
+        "moonblast",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "lilligant",
+      "formKind": "korean-regional",
+      "id": "lilligant_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "noctowl_korean": {
+      "name": "야부엉(한국폼)",
+      "types": [
+        "psychic",
+        "flying"
+      ],
+      "color": "#a77871",
+      "hp": 85,
+      "attack": 55,
+      "defense": 65,
+      "speed": 80,
+      "moves": [
+        "confusion",
+        "airSlash",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "noctowl",
+      "formKind": "korean-regional",
+      "id": "noctowl_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "rapidash_korean": {
+      "name": "날쌩마(한국폼)",
+      "types": [
+        "water",
+        "fairy"
+      ],
+      "color": "#72c1dd",
+      "hp": 65,
+      "attack": 95,
+      "defense": 70,
+      "speed": 105,
+      "moves": [
+        "surf",
+        "moonblast",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "rapidash",
+      "formKind": "korean-regional",
+      "id": "rapidash_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "chimecho_korean": {
+      "name": "치렁(한국폼)",
+      "types": [
+        "psychic",
+        "fairy"
+      ],
+      "color": "#e5b5c7",
+      "hp": 75,
+      "attack": 50,
+      "defense": 80,
+      "speed": 75,
+      "moves": [
+        "confusion",
+        "moonblast",
+        "growl",
+        "quickAttack"
+      ],
+      "formOf": "chimecho",
+      "formKind": "korean-regional",
+      "id": "chimecho_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "absol_korean": {
+      "name": "앱솔(한국폼)",
+      "types": [
+        "dark",
+        "ice"
+      ],
+      "color": "#dfe8ed",
+      "hp": 65,
+      "attack": 125,
+      "defense": 70,
+      "speed": 75,
+      "moves": [
+        "darkPulse",
+        "iceBeam",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "absol",
+      "formKind": "korean-regional",
+      "id": "absol_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "lucario_korean": {
+      "name": "루카리오(한국폼)",
+      "types": [
+        "fighting",
+        "steel"
+      ],
+      "color": "#5e7caa",
+      "hp": 70,
+      "attack": 105,
+      "defense": 75,
+      "speed": 90,
+      "moves": [
+        "auraSphere",
+        "metalClaw",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "lucario",
+      "formKind": "korean-regional",
+      "id": "lucario_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "falinks_korean": {
+      "name": "대여르(한국폼)",
+      "types": [
+        "fighting",
+        "steel"
+      ],
+      "color": "#b94942",
+      "hp": 75,
+      "attack": 100,
+      "defense": 100,
+      "speed": 75,
+      "moves": [
+        "auraSphere",
+        "metalClaw",
+        "tackle",
+        "growl"
+      ],
+      "formOf": "falinks",
+      "formKind": "korean-regional",
+      "id": "falinks_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "decidueye_korean": {
+      "name": "모크나이퍼(한국폼)",
+      "types": [
+        "grass",
+        "ghost"
+      ],
+      "color": "#6f8161",
+      "hp": 78,
+      "attack": 107,
+      "defense": 75,
+      "speed": 70,
+      "moves": [
+        "leafBlade",
+        "shadowBall",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "decidueye",
+      "formKind": "korean-regional",
+      "id": "decidueye_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "milotic_korean": {
+      "name": "밀로틱(한국폼)",
+      "types": [
+        "water",
+        "dragon"
+      ],
+      "color": "#8bbbd1",
+      "hp": 95,
+      "attack": 60,
+      "defense": 90,
+      "speed": 81,
+      "moves": [
+        "surf",
+        "dragonPulse",
+        "waterGun",
+        "growl"
+      ],
+      "formOf": "milotic",
+      "formKind": "korean-regional",
+      "id": "milotic_korean",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "mega_ulchangryeong": {
+      "name": "메가울창령",
+      "types": [
+        "grass",
+        "fairy"
+      ],
+      "color": "#a8d389",
+      "hp": 58,
+      "attack": 37,
+      "defense": 36,
+      "speed": 32,
+      "moves": [
+        "leafBlade",
+        "moonblast",
+        "vineWhip",
+        "quickAttack"
+      ],
+      "formOf": "ulchangryeong",
+      "formKind": "mega",
+      "requiresMega": true,
+      "id": "mega_ulchangryeong",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "mega_jinhwarang": {
+      "name": "메가진화랑",
+      "types": [
+        "fire",
+        "fighting"
+      ],
+      "color": "#ed7152",
+      "hp": 58,
+      "attack": 40,
+      "defense": 34,
+      "speed": 35,
+      "moves": [
+        "ember",
+        "auraSphere",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "jinhwarang",
+      "formKind": "mega",
+      "requiresMega": true,
+      "id": "mega_jinhwarang",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "mega_haeryushin": {
+      "name": "메가해류신",
+      "types": [
+        "water",
+        "dragon"
+      ],
+      "color": "#65bfe0",
+      "hp": 60,
+      "attack": 38,
+      "defense": 40,
+      "speed": 34,
+      "moves": [
+        "surf",
+        "dragonPulse",
+        "waterGun",
+        "quickAttack"
+      ],
+      "formOf": "haeryushin",
+      "formKind": "mega",
+      "requiresMega": true,
+      "id": "mega_haeryushin",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "mega_cheonhwagu": {
+      "name": "메가천화구",
+      "types": [
+        "fairy",
+        "dark"
+      ],
+      "color": "#f1dbcb",
+      "hp": 90,
+      "attack": 112,
+      "defense": 95,
+      "speed": 105,
+      "moves": [
+        "moonblast",
+        "darkPulse",
+        "quickAttack",
+        "growl"
+      ],
+      "formOf": "cheonhwagu",
+      "formKind": "mega",
+      "requiresMega": true,
+      "id": "mega_cheonhwagu",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
+    },
+    "mega_gardevoir_korean_shiny": {
+      "name": "특수 이로치 메가가디안",
+      "types": [
+        "psychic",
+        "fairy"
+      ],
+      "color": "#e7b2cf",
+      "hp": 68,
+      "attack": 85,
+      "defense": 65,
+      "speed": 100,
+      "moves": [
+        "moonblast",
+        "confusion",
+        "disarmingVoice",
+        "growl"
+      ],
+      "formOf": "gardevoir",
+      "formKind": "mega",
+      "requiresMega": true,
+      "requiresShiny": true,
+      "id": "mega_gardevoir_korean_shiny",
+      "codexCategory": "한국 지방 특수 폼",
+      "storyOnly": true,
+      "encounter": "future-form-event",
+      "assetStatus": "ready"
     }
   }
 }

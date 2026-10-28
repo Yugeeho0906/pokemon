@@ -1,5 +1,8 @@
 extends Node2D
 
+signal dialogue_closed
+signal rescue_event_finished
+
 # 인천부터 수원까지의 화면, 입력, 이벤트 연결을 담당합니다.
 const GameEngine = preload("res://game/engine.gd")
 const Field = preload("res://game/field.gd")
@@ -34,6 +37,15 @@ var encounter_cooldown := 0.0
 var toast_time := 0.0
 var last_save := "아직 저장하지 않았습니다"
 var loading_save := false
+var cinematic_active := false
+var scripted_moving := false
+var cinematic_generation := 0
+var cinematic_tweens: Array[Tween] = []
+var event_wash: ColorRect
+var event_sfx: AudioStreamPlayer
+var battle_sprites: Dictionary = {}
+var battle_backgrounds: Dictionary = {}
+var battle_animation_generation := 0
 
 
 func _ready() -> void:
@@ -51,6 +63,15 @@ func _ready() -> void:
 	field = Field.new()
 	field.state = state
 	field_frame.add_child(field)
+	event_wash = ColorRect.new()
+	event_wash.color = Color("b9c7ff",0.0)
+	event_wash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	event_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	event_wash.z_index = 20
+	field_frame.add_child(event_wash)
+	event_sfx = AudioStreamPlayer.new()
+	event_sfx.stream = load("res://assets/generated/forest_anomaly.mp3") if ResourceLoader.exists("res://assets/generated/forest_anomaly.mp3") else null
+	add_child(event_sfx)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Control.new()
@@ -66,7 +87,7 @@ func _ready() -> void:
 	side.position = Vector2(1004, 100)
 	hud.add_child(side)
 	_label(hud, "WASD / 방향키  이동     E / Space  대화·조사     마우스 클릭  목적지 이동", Rect2(24, 754, 795, 22), 12, MUTED)
-	_label(hud, "개발판 v0.1 · 임시 필드 스프라이트", Rect2(995, 754, 280, 22), 11, MUTED)
+	_label(hud, "개발판 v0.2 · 픽셀 필드·배틀 스프라이트", Rect2(995, 754, 280, 22), 11, MUTED)
 	hint_label = _label(hud, "", Rect2(260, 706, 550, 28), 15, PAPER)
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label = _label(hud, "", Rect2(24, 777, 1150, 22), 11, INK)
@@ -95,7 +116,7 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(field):
 		return
 	field.state = state
-	field.moving = false
+	field.moving = scripted_moving
 	encounter_cooldown = maxf(0, encounter_cooldown - delta)
 	if toast_time > 0:
 		toast_time -= delta
@@ -141,7 +162,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_ESCAPE:
 			if menu.visible: close_menu()
-			elif active and not dialogue_layer.visible and not battle_layer.visible: open_save()
+			elif _can_move(): open_save()
 		elif event.keycode == KEY_F5 and _can_move(): save_game()
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _can_move():
 		var point: Vector2 = (event.position - field.global_position) / 32.0 - Vector2(0.5, 0.5)
@@ -150,13 +171,21 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _can_move() -> bool:
-	return active and not menu.visible and not dialogue_layer.visible and not battle_layer.visible and not file_dialog.visible
+	return active and not cinematic_active and not menu.visible and not dialogue_layer.visible and not battle_layer.visible and not file_dialog.visible
+
+
+func _gym_open() -> bool:
+	return GameEngine.gym_leader_unlocked(state)
+
+
+func _can_walk(x: float, y: float) -> bool:
+	return Field.can_walk(state.area,x,y,_gym_open())
 
 
 func _move(offset: Vector2) -> void:
 	var before := Vector2(state.player.x, state.player.y)
-	if Field.can_walk(state.area, state.player.x + offset.x, state.player.y): state.player.x += offset.x
-	if Field.can_walk(state.area, state.player.x, state.player.y + offset.y): state.player.y += offset.y
+	if _can_walk(state.player.x + offset.x, state.player.y): state.player.x += offset.x
+	if _can_walk(state.player.x, state.player.y + offset.y): state.player.y += offset.y
 	var after := Vector2(state.player.x, state.player.y)
 	if after.distance_to(before) < 0.001:
 		walk_path.clear()
@@ -181,7 +210,7 @@ func set_destination(point: Vector2) -> void:
 			target = Vector2i(int(item.x), int(item.y))
 			auto_interaction = item.id
 			break
-	if not Field.can_walk(state.area, target.x, target.y): return
+	if not _can_walk(target.x, target.y): return
 	var origin := Vector2i(roundi(state.player.x), roundi(state.player.y))
 	var queue: Array[Vector2i] = [origin]
 	var previous := {origin: origin}
@@ -192,7 +221,7 @@ func set_destination(point: Vector2) -> void:
 		if cell == target: break
 		for offset in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 			var next: Vector2i = cell + offset
-			if not previous.has(next) and Field.can_walk(state.area, next.x, next.y):
+			if not previous.has(next) and _can_walk(next.x, next.y):
 				previous[next] = cell
 				queue.append(next)
 	if not previous.has(target): return
@@ -226,17 +255,7 @@ func interact(id: String = "") -> void:
 	if point.is_empty() or Vector2(state.player.x,state.player.y).distance_to(Vector2(point.x,point.y)) > 1.75: return
 	walk_path.clear()
 	match id:
-		"ralts":
-			show_dialogue([
-				{"speaker":"서하린", "text":"저기, 나뭇가지 사이에 작은 포켓몬이 있어! 다친 것 같아. 같이 도와주자.", "portrait":"harin"},
-				{"speaker":"숲속의 작은 만남", "text":"조심스럽게 가지를 걷어 내자 푸른 머리의 랄토스가 손을 뻗었다. 낯선 발자국 소리가 숲 저편으로 사라졌다."},
-				{"speaker":"서하린", "text":"괜찮아, 이제 안전해. …방금 나무 뒤에 검은 여우 같은 그림자가 보이지 않았어?", "portrait":"harin"}
-			], func():
-				var result: Dictionary = GameEngine.rescue_ralts(state)
-				toast(result.message)
-				refresh_hud()
-				show_dialogue([{"speaker":"다음 날 아침", "text":"랄토스가 당신 곁을 따라온다. 서쪽의 백서화 연구소를 찾아가자."}])
-			)
+		"ralts": _run_ralts_rescue_event()
 		"lab":
 			if state.stage == "prologue": show_dialogue([{"speaker":"연구소 안내", "text":"백서화는 현장 조사를 나갔습니다. 먼저 동쪽 숲을 살펴보세요."}])
 			elif not state.flags.starterChosen:
@@ -251,12 +270,10 @@ func interact(id: String = "") -> void:
 				show_dialogue([{"speaker":"서하린", "text":"드디어 출발이네! 여행 전에 첫 배틀, 어때? 서로의 새 친구를 소개해 주자!", "portrait":"harin"}], func(): start_battle("rival"))
 			else: show_dialogue([{"speaker":"서하린", "text":"다음에는 내가 이길 거야! 1번도로에서 만나는 트레이너들과 실력을 쌓아 봐. 수원에서 다시 만나자.", "portrait":"harin"}])
 		"gate":
-			if not state.flags.get("rivalWon", false):
-				toast("연구소에서 친구를 선택한 뒤 서하린과 첫 배틀을 마쳐 주세요.")
-			elif state.area == "incheon": change_area("route", Vector2(2,10))
-			elif state.area == "route": change_area("suwon", Vector2(2,10))
-		"gateBack":
-			change_area("incheon" if state.area == "route" else "route", Vector2(27,10))
+			if not state.flags.get("rivalWon",false): toast("연구소에서 친구를 선택한 뒤 서하린과 첫 배틀을 마쳐 주세요.")
+			elif state.area == "incheon": change_area("route",Vector2(2,10))
+			elif state.area == "route": change_area("suwon",Vector2(2,10))
+		"gateBack": change_area("incheon" if state.area == "route" else "route",Vector2(27,10))
 		"healer", "center":
 			GameEngine.heal_party(state)
 			if state.area == "suwon" and not state.visited.has("suwon"):
@@ -264,8 +281,19 @@ func interact(id: String = "") -> void:
 			show_dialogue([{"speaker":"포켓몬 돌봄 안내", "text":"모든 동료의 체력과 기술 PP를 회복했습니다. 도시 포켓몬센터를 방문하면 여행 지도에서 무료 빠른 이동을 이용할 수 있어요."}])
 		"gym":
 			if not state.flags.get("rivalWon",false): toast("먼저 서하린과 첫 배틀을 마쳐 주세요.")
+			else: change_area("suwon_gym",Vector2(14,17))
+		"gym_exit": change_area("suwon",Vector2(20,8))
+		"gym_guide": show_dialogue([{"speaker":"성곽 안내석", "text":"성벽의 옛 문장은 말합니다. 해가 길을 열고, 산을 지나, 물로 흘러간다. 세 문양을 그 차례대로 밟으세요."}])
+		"gym_plate_sun", "gym_plate_mountain", "gym_plate_water":
+			var plate := id.trim_prefix("gym_plate_")
+			var result: Dictionary = GameEngine.record_gym_plate(state,plate)
+			field.queue_redraw()
+			show_dialogue([{"speaker":"체육관 문양", "text":result.message}])
+		"gym_leader":
+			if not _gym_open():
+				show_dialogue([{"speaker":"닫힌 성문", "text":"세 훈련생과 겨루고, 해 → 산 → 물 문양을 순서대로 밝혀야 관장 구역이 열립니다. 현재 훈련생 %d/3 · 퍼즐 %s" % [state.gymTrainerWins.size(),"완료" if state.gymPuzzleSolved else "미완료"]}])
 			else:
-				show_dialogue([{"speaker":"이도윤 · 수원 체육관", "text":"성곽의 단단함은 기초에서 나오지. 너와 동료들의 호흡을 보여 다오. 나의 에이스는 피죤투다!"}], func(): start_battle("gym"))
+				show_dialogue([{"speaker":"이도윤 · 수원 체육관", "text":"성곽의 단단함은 동료를 믿는 데서 나오지. 구구, 피죤, 피죤투—세 동료의 연계를 보여 주마!"}], func(): start_battle("gym"))
 		"shop": open_shop()
 		"museum": show_dialogue([{"speaker":"전시관 관리인", "text":"오래된 유물 하나가 사라졌습니다. 누군가 고대 문양을 조사하러 왔다는데… 여행 중 수상한 흔적을 보거든 알려 주세요."}])
 		"item":
@@ -275,9 +303,13 @@ func interact(id: String = "") -> void:
 				toast("샛길에서 상처약 3개를 찾았습니다!")
 			else: toast("이미 조사한 샛길입니다.")
 		_:
-			if id.begins_with("trainer"):
+			if id.begins_with("gym_trainer"):
+				var number := int(id.trim_prefix("gym_trainer"))
+				var names := ["수비대 훈련생 민준", "성문 안내원 지아", "성곽 순찰자 도윤"]
+				show_dialogue([{"speaker":names[number], "text":"문양 수련의 마지막 단계는 동료와 호흡을 맞추는 것. 정정당당하게 승부하자!"}], func(): start_battle("gym_trainer","",number))
+			elif id.begins_with("trainer"):
 				var number := int(id.trim_prefix("trainer"))
-				show_dialogue([{"speaker":"1번도로 트레이너 %d" % (number+1), "text":"모험은 함께 성장하는 거야. 파티의 동료들도 경험치를 나눠 받아! 한 판 겨뤄 볼까?"}], func(): start_battle("trainer", "", number))
+				show_dialogue([{"speaker":"1번도로 트레이너 %d" % (number+1), "text":"모험은 함께 성장하는 거야. 파티의 동료들도 경험치를 나눠 받아! 한 판 겨뤄 볼까?"}], func(): start_battle("trainer","",number))
 	refresh_hud()
 
 
@@ -289,6 +321,174 @@ func change_area(area: String, point: Vector2) -> void:
 	encounter_cooldown = 2.0
 	refresh_hud()
 	toast(Field.area_info(area).name)
+
+
+func _cinematic_is_current(token: int) -> bool:
+	return cinematic_active and token == cinematic_generation
+
+
+func _new_cinematic_tween(parallel: bool = false) -> Tween:
+	var tween := create_tween()
+	if parallel:
+		tween.set_parallel(true)
+	cinematic_tweens.append(tween)
+	return tween
+
+
+func _cancel_cinematic() -> void:
+	# 세이브 불러오기·새 게임·타이틀 전환 후 이전 await가 새 상태를 바꾸지 않게 합니다.
+	cinematic_generation += 1
+	for tween in cinematic_tweens:
+		if is_instance_valid(tween): tween.kill()
+	cinematic_tweens.clear()
+	cinematic_active = false
+	scripted_moving = false
+	walk_path.clear()
+	if is_instance_valid(field):
+		field.cinematic_mode = ""
+		field.position = Vector2.ZERO
+		field.scale = Vector2.ONE
+		field.moving = false
+		field.queue_redraw()
+	if is_instance_valid(event_wash): event_wash.modulate.a = 0.0
+	if is_instance_valid(event_sfx): event_sfx.stop()
+
+
+func _set_scripted_player_position(point: Vector2) -> void:
+	state.player.x = point.x
+	state.player.y = point.y
+	field.queue_redraw()
+
+
+func _cinematic_walk_to(destination: Vector2, token: int) -> bool:
+	if not _cinematic_is_current(token): return false
+	var target := Vector2i(roundi(destination.x),roundi(destination.y))
+	var origin := Vector2i(roundi(state.player.x),roundi(state.player.y))
+	var queue: Array[Vector2i] = [origin]
+	var previous := {origin:origin}
+	var head := 0
+	while head < queue.size():
+		var cell: Vector2i = queue[head]
+		head += 1
+		if cell == target: break
+		for offset in [Vector2i.UP,Vector2i.DOWN,Vector2i.LEFT,Vector2i.RIGHT]:
+			var next: Vector2i = cell+offset
+			if not previous.has(next) and Field.can_walk(state.area,next.x,next.y,_gym_open()):
+				previous[next] = cell
+				queue.append(next)
+	if not previous.has(target): return false
+	var steps: Array[Vector2i] = []
+	var current: Vector2i = target
+	while current != origin:
+		steps.push_front(current)
+		current = previous[current]
+	scripted_moving = true
+	for cell in steps:
+		if not _cinematic_is_current(token): return false
+		var from := Vector2(state.player.x,state.player.y)
+		var to := Vector2(cell)
+		var direction := to-from
+		state.player.facing = "right" if direction.x > 0 else ("left" if direction.x < 0 else ("down" if direction.y > 0 else "up"))
+		var tween := _new_cinematic_tween()
+		tween.tween_method(_set_scripted_player_position,from,to,0.10)
+		await tween.finished
+		if not _cinematic_is_current(token): return false
+	scripted_moving = false
+	field.moving = false
+	return true
+
+
+func _cinematic_camera(target: Vector2, zoom: float, duration: float, token: int) -> bool:
+	if not _cinematic_is_current(token): return false
+	var center := Vector2(480,320)
+	var offset := center-target*zoom
+	var tween := _new_cinematic_tween(true)
+	tween.tween_property(field,"scale",Vector2(zoom,zoom),duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(field,"position",offset,duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await tween.finished
+	return _cinematic_is_current(token)
+
+
+func _reset_cinematic_camera(token: int) -> bool:
+	if not _cinematic_is_current(token): return false
+	var tween := _new_cinematic_tween(true)
+	tween.tween_property(field,"scale",Vector2.ONE,0.45).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(field,"position",Vector2.ZERO,0.45).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await tween.finished
+	return _cinematic_is_current(token)
+
+
+func _event_flash(color: Color, strength: float, token: int) -> bool:
+	if not _cinematic_is_current(token): return false
+	event_wash.color = color
+	event_wash.modulate.a = 0.0
+	var tween := _new_cinematic_tween()
+	tween.tween_property(event_wash,"modulate:a",strength,0.2)
+	tween.tween_property(event_wash,"modulate:a",0.0,0.65)
+	await tween.finished
+	return _cinematic_is_current(token)
+
+
+func _event_sound() -> void:
+	if event_sfx != null and event_sfx.stream != null:
+		event_sfx.stop()
+		event_sfx.play()
+
+
+func _run_ralts_rescue_event() -> void:
+	if cinematic_active or state.stage != "prologue": return
+	cinematic_generation += 1
+	var token := cinematic_generation
+	cinematic_active = true
+	field.cinematic_mode = "traces"
+	_event_sound()
+	show_dialogue([
+		{"speaker":"서하린", "text":"저기, 나뭇가지 사이에 작은 포켓몬이 있어! 다친 것 같아. 같이 도와주자.", "portrait":"harin"},
+		{"speaker":"숲속의 작은 만남", "text":"숲의 소리가 잠시 멎었다. 나무 사이로 보랏빛 발자국이 희미하게 이어진다."}
+	])
+	await dialogue_closed
+	if not _cinematic_is_current(token): return
+	var walked := await _cinematic_walk_to(Vector2(21,7),token)
+	if not walked: return
+	var focused := await _cinematic_camera(Vector2(736,176),1.18,0.55,token)
+	if not focused: return
+	var flashed := await _event_flash(Color("9e91ef"),0.17,token)
+	if not flashed: return
+	show_dialogue([
+		{"speaker":"서하린", "text":"이 흔적… 포켓몬의 발자국이라기보다 빛이 땅에 남긴 자국 같아.", "portrait":"harin"},
+		{"speaker":"숲의 메아리", "text":"덤불 아래서 작은 숨소리가 들린다. 누군가 곁을 지키며 조심스럽게 가지를 치운다."}
+	])
+	await dialogue_closed
+	if not _cinematic_is_current(token): return
+	walked = await _cinematic_walk_to(Vector2(23,5),token)
+	if not walked: return
+	focused = await _cinematic_camera(Vector2(752,176),1.27,0.48,token)
+	if not focused: return
+	field.cinematic_mode = "rescue"
+	_event_sound()
+	flashed = await _event_flash(Color("e6edff"),0.48,token)
+	if not flashed: return
+	show_dialogue([
+		{"speaker":"서하린", "text":"괜찮아, 이제 안전해. …방금 나무 뒤에 검은 그림자가 스쳐 간 것 같아.", "portrait":"harin"},
+		{"speaker":"숲속의 작은 만남", "text":"빛이 잦아들자 이로치 랄토스가 조심스레 손을 내밀었다. 멀리서 낯선 발자국 소리가 사라진다."}
+	])
+	await dialogue_closed
+	if not _cinematic_is_current(token): return
+	var result: Dictionary = GameEngine.rescue_ralts(state)
+	if not result.ok:
+		toast(result.message)
+		_cancel_cinematic()
+		return
+	toast(result.message)
+	refresh_hud()
+	field.cinematic_mode = ""
+	var restored := await _reset_cinematic_camera(token)
+	if not restored: return
+	cinematic_active = false
+	cinematic_tweens.clear()
+	field.queue_redraw()
+	show_dialogue([{"speaker":"다음 날 아침", "text":"랄토스가 당신 곁을 따라온다. 서쪽의 백서화 연구소에서 함께할 스타팅 파트너를 선택하자."}])
+	rescue_event_finished.emit()
 
 
 func show_title() -> void:
@@ -307,6 +507,7 @@ func show_title() -> void:
 
 
 func start_new_game() -> void:
+	_cancel_cinematic()
 	state = GameEngine.create_game()
 	active = true
 	title_layer.hide()
@@ -344,6 +545,7 @@ func advance_dialogue() -> void:
 	if dialogue_index < dialogue_lines.size(): _render_dialogue()
 	else:
 		dialogue_layer.hide()
+		dialogue_closed.emit()
 		var callback := dialogue_callback
 		dialogue_callback = Callable()
 		if callback.is_valid(): callback.call()
@@ -387,6 +589,7 @@ func start_battle(kind: String, species: String = "", trainer_id: int = -1) -> v
 
 
 func render_battle() -> void:
+	battle_animation_generation += 1
 	if state.battle == null:
 		battle_layer.hide()
 		return
@@ -398,12 +601,14 @@ func render_battle() -> void:
 	var battle: Dictionary = state.battle
 	var ally: Dictionary = state.party[battle.active]
 	var enemy: Dictionary = battle.enemy
-	var trainer_name: String = {"wild":"야생 포켓몬", "rival":"라이벌 서하린", "trainer":"1번도로 트레이너", "gym":"수원 체육관 · 이도윤"}.get(battle.kind,"배틀")
-	_label(battle_layer, str(trainer_name), Rect2(48,118,550,28), 17, INK)
+	_battle_backdrop(battle_layer,battle.kind)
+	var trainer_name: String = {"wild":"야생 포켓몬", "rival":"라이벌 서하린", "trainer":"1번도로 트레이너", "gym_trainer":"수원 체육관 트레이너", "gym":"수원 체육관 · 이도윤"}.get(battle.kind,"배틀")
+	var enemy_order := "  ·  %d / %d" % [int(battle.get("enemyIndex",0))+1,battle.get("enemyParty",[enemy]).size()] if battle.get("enemyParty",[]).size() > 1 else ""
+	_label(battle_layer, str(trainer_name)+enemy_order, Rect2(48,118,550,28), 17, INK)
 	_mon_card(battle_layer,enemy,Rect2(60,175,330,93))
 	_mon_card(battle_layer,ally,Rect2(600,427,340,102))
-	_mon_display(battle_layer,enemy,Rect2(632,206,234,200))
-	_mon_display(battle_layer,ally,Rect2(157,346,240,190))
+	_mon_display(battle_layer,enemy,Rect2(632,206,234,200),false)
+	_mon_display(battle_layer,ally,Rect2(157,346,240,190),true)
 	if battle.kind == "rival": _portrait(battle_layer,"harin",Rect2(858,125,105,250))
 	var logs: Array = battle.logs
 	var recent := ""
@@ -444,11 +649,76 @@ func render_battle() -> void:
 
 func perform_battle_action(action: Dictionary) -> void:
 	if state.battle == null or not str(state.battle.get("outcome","")).is_empty(): return
+	var move_type := "normal"
+	if action.type == "move":
+		var active_index: int = int(state.battle.active)
+		var move_index: int = int(action.get("index",-1))
+		if active_index >= 0 and active_index < state.party.size() and move_index >= 0 and move_index < state.party[active_index].moves.size():
+			move_type = str(GameEngine.get_move(state.party[active_index].moves[move_index].id).type)
 	var result: Dictionary = GameEngine.battle_action(state,action)
 	if not result.ok: toast(result.message)
 	if action.type != "move": battle_page = "main"
 	render_battle()
+	if result.ok and action.type == "move" and state.battle != null and str(state.battle.get("outcome","")).is_empty():
+		_play_battle_move_animation(move_type)
 	refresh_hud()
+
+
+func _move_effect_color(move_type: String) -> Color:
+	return {
+		"fire": Color("f26b44"), "water": Color("57b8e5"), "grass": Color("6abf66"),
+		"electric": Color("f5ca43"), "psychic": Color("d472b6"), "fairy": Color("f0a4ca"),
+		"flying": Color("91b8e9"), "bug": Color("9db84d"), "ice": Color("9be1ed"),
+		"fighting": Color("d96b57"), "ground": Color("c99a60"), "rock": Color("a99a70"),
+		"poison": Color("a875bd"), "ghost": Color("765d9e"), "dragon": Color("7287d6"),
+		"dark": Color("755e59"), "steel": Color("aeb7c8")
+	}.get(move_type, Color("e6c75d"))
+
+
+func _spawn_battle_impact(effect_color: Color, token: int) -> void:
+	if token != battle_animation_generation: return
+	var defender := battle_layer.get_node_or_null("BattleEnemySprite") as TextureRect
+	if defender == null: return
+	var impact := Label.new()
+	impact.name = "BattleImpact"
+	impact.text = "✦"
+	impact.position = defender.position + defender.size * 0.34
+	impact.size = Vector2(88,88)
+	impact.pivot_offset = impact.size * 0.5
+	impact.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	impact.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	impact.add_theme_font_size_override("font_size",70)
+	impact.add_theme_color_override("font_color",effect_color)
+	impact.add_theme_color_override("font_shadow_color",Color("24342f"))
+	impact.add_theme_constant_override("shadow_offset_x",2)
+	impact.add_theme_constant_override("shadow_offset_y",2)
+	impact.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	battle_layer.add_child(impact)
+	var defender_start := defender.position
+	var effect_tween := create_tween().set_parallel(true)
+	effect_tween.tween_property(impact,"scale",Vector2(1.55,1.55),0.26).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	effect_tween.tween_property(impact,"modulate:a",0.0,0.26).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	effect_tween.tween_property(defender,"position",defender_start+Vector2(-12,3),0.06)
+	effect_tween.chain().tween_property(defender,"position",defender_start+Vector2(10,-2),0.06)
+	effect_tween.chain().tween_property(defender,"position",defender_start,0.08)
+	var impact_ref: WeakRef = weakref(impact)
+	effect_tween.finished.connect(func():
+		var finished_impact: Node = impact_ref.get_ref() as Node
+		if finished_impact != null: finished_impact.queue_free()
+	)
+
+
+func _play_battle_move_animation(move_type: String) -> void:
+	var attacker := battle_layer.get_node_or_null("BattleAllySprite") as TextureRect
+	var defender := battle_layer.get_node_or_null("BattleEnemySprite") as TextureRect
+	if attacker == null or defender == null: return
+	var token := battle_animation_generation
+	var attacker_start := attacker.position
+	var lunge := Vector2(42,-14)
+	var move_tween := create_tween()
+	move_tween.tween_property(attacker,"position",attacker_start+lunge,0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	move_tween.tween_callback(_spawn_battle_impact.bind(_move_effect_color(move_type),token))
+	move_tween.tween_property(attacker,"position",attacker_start,0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
 
 func finish_battle() -> void:
@@ -465,6 +735,8 @@ func finish_battle() -> void:
 		show_dialogue([{"speaker":"서하린", "text":"좋아, 이번에는 네가 이겼어! 동료들도 회복됐으니 동쪽 1번도로로 출발하자. 다음엔 절대 안 져!", "portrait":"harin"}])
 	elif outcome == "won" and kind == "gym":
 		show_dialogue([{"speaker":"이도윤", "text":"훌륭한 호흡이었다. 성곽배지는 너의 것이다! 이 개발판의 첫 여정을 완주했다. 자유롭게 탐험하고 기록을 저장해 두렴."}])
+	elif outcome == "won" and kind == "gym_trainer":
+		show_dialogue([{"speaker":"수원 체육관", "text":"승부에서 배운 점을 기억해. 관장 구역은 세 훈련생과 문양을 모두 마쳐야 열린다. (%d/3)" % state.gymTrainerWins.size()}])
 
 
 func refresh_hud() -> void:
@@ -491,6 +763,9 @@ func refresh_hud() -> void:
 
 
 func open_menu(title: String) -> void:
+	if cinematic_active:
+		toast("이벤트 연출이 끝난 뒤 메뉴를 열 수 있습니다.")
+		return
 	_clear(menu)
 	menu.show()
 	walk_path.clear()
@@ -503,6 +778,13 @@ func open_menu(title: String) -> void:
 
 func close_menu() -> void:
 	menu.hide()
+
+
+func _return_to_title() -> void:
+	_cancel_cinematic()
+	close_menu()
+	active = false
+	show_title()
 
 
 func open_party() -> void:
@@ -594,6 +876,7 @@ func fast_travel(area: String) -> void:
 
 
 func open_save() -> void:
+	if cinematic_active: toast("이벤트 연출이 끝난 뒤 저장 메뉴를 열 수 있습니다."); return
 	if state.battle != null: toast("전투를 마친 뒤 저장해 주세요."); return
 	open_menu("모험 기록 · 저장 / 불러오기")
 	_label(menu,"이 기기에 저장",Rect2(285,193,710,30),20)
@@ -604,11 +887,12 @@ func open_save() -> void:
 	_button(menu,"저장 파일 가져오기",Rect2(655,381,340,52),func(): choose_save_file(true),"ImportSave")
 	_label(menu,"게임 ZIP과 내보낸 JSON 파일을 카톡에 보관하면 다른 PC로 옮길 수 있습니다.\n설치 파일, 저장 파일과 회사 측 접속 기록은 서로 별개입니다.",Rect2(285,466,710,80),14,MUTED)
 	_button(menu,"아트 원본 / 제작 현황",Rect2(285,573,340,44),open_art,"ArtButton")
-	_button(menu,"타이틀로 돌아가기",Rect2(655,573,340,44),func(): close_menu(); active=false; show_title(),"TitleButton")
+	_button(menu,"타이틀로 돌아가기",Rect2(655,573,340,44),_return_to_title,"TitleButton")
 	_label(menu,last_save,Rect2(285,646,710,28),12,GOLD)
 
 
 func save_game(path: String = SAVE_PATH) -> bool:
+	if cinematic_active: toast("이벤트 연출이 끝난 뒤 저장해 주세요."); return false
 	if state.battle != null: toast("전투가 끝난 뒤 저장해 주세요."); return false
 	var text: String = GameEngine.serialize_save(state)
 	if text.is_empty(): toast("저장할 수 없는 상태입니다."); return false
@@ -629,8 +913,9 @@ func load_game(path: String = SAVE_PATH) -> bool:
 	if FileAccess.get_file_as_bytes(path).size() > 2_000_000: toast("저장 파일이 너무 큽니다."); return false
 	var result: Dictionary = GameEngine.validate_save(FileAccess.get_file_as_string(path))
 	if not result.ok: toast("저장 파일을 불러오지 못했습니다: " + str(result.get("error","형식 오류"))); return false
+	_cancel_cinematic()
 	state = result.state
-	if not Field.can_walk(state.area,state.player.x,state.player.y):
+	if not Field.can_walk(state.area,state.player.x,state.player.y,_gym_open()):
 		state.player.x = 14
 		state.player.y = 10
 	active = true
@@ -646,6 +931,7 @@ func load_game(path: String = SAVE_PATH) -> bool:
 
 
 func choose_save_file(load_mode: bool) -> void:
+	if cinematic_active: toast("이벤트 연출이 끝난 뒤 이용해 주세요."); return
 	if state.battle != null: toast("전투가 끝난 뒤 이용해 주세요."); return
 	loading_save = load_mode
 	file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE if load_mode else FileDialog.FILE_MODE_SAVE_FILE
@@ -800,14 +1086,53 @@ func _mon_card(parent: Node, mon: Dictionary, rect: Rect2) -> void:
 	_label(parent,"HP  %d / %d%s" % [mon.hp,mon.maxHp,"   화상" if str(mon.get("status",""))=="burn" else ""],Rect2(rect.position+Vector2(14,63),Vector2(rect.size.x-20,24)),12,MUTED)
 
 
-func _mon_display(parent: Node, mon: Dictionary, rect: Rect2) -> void:
-	if mon.species in ["purunae","hwarangi","padoring"]:
-		_starter_art(parent,mon.species,rect)
-	else:
-		_panel(parent,Rect2(rect.position+Vector2(20,35),rect.size-Vector2(40,45)),Color("ecf2df"))
-		_label(parent,"◇",Rect2(rect.position+Vector2(75,35),Vector2(130,65)),47,GOLD)
-		_label(parent,mon.name,Rect2(rect.position+Vector2(30,107),Vector2(rect.size.x-50,35)),24,INK)
-		_label(parent,"임시 표시 · 스프라이트 미제공",Rect2(rect.position+Vector2(27,147),Vector2(rect.size.x-42,38)),10,MUTED)
+func _battle_texture(species: String, rear: bool) -> Texture2D:
+	var pose := "back" if rear else "front"
+	var paths := [
+		"res://assets/catalog/pokemon/%s/%s.png" % [species,pose],
+		"res://assets/generated/battle/%s_%s.png" % [species,pose]
+	]
+	for path in paths:
+		if not battle_sprites.has(path) and ResourceLoader.exists(path):
+			battle_sprites[path] = load(path) as Texture2D
+		if battle_sprites.has(path): return battle_sprites[path] as Texture2D
+	return null
+
+
+func _battle_backdrop(parent: Node, kind: String) -> void:
+	var path := "res://assets/generated/maps/suwon_gym_battle_bg_960.png" if kind in ["gym","gym_trainer"] else ""
+	if path.is_empty() or not ResourceLoader.exists(path): return
+	if not battle_backgrounds.has(path): battle_backgrounds[path] = load(path) as Texture2D
+	var image := TextureRect.new()
+	image.texture = battle_backgrounds[path] as Texture2D
+	image.position = Vector2(20,100)
+	image.size = Vector2(960,457)
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	image.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	image.modulate = Color(1,1,1,0.9)
+	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(image)
+
+
+func _mon_display(parent: Node, mon: Dictionary, rect: Rect2, rear: bool = false) -> void:
+	var texture := _battle_texture(str(mon.species),rear)
+	if texture != null:
+		var image := TextureRect.new()
+		image.name = "BattleAllySprite" if rear else "BattleEnemySprite"
+		image.texture = texture
+		image.position = rect.position
+		image.size = rect.size
+		image.pivot_offset = rect.size * 0.5
+		image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		image.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		parent.add_child(image)
+		return
+	# 생성 스프라이트가 빠진 개발 환경에서도 전투 자체는 깨지지 않도록 유지하는 폴백입니다.
+	_panel(parent,Rect2(rect.position+Vector2(20,35),rect.size-Vector2(40,45)),Color("ecf2df"))
+	_label(parent,mon.name,Rect2(rect.position+Vector2(30,107),Vector2(rect.size.x-50,35)),24,INK)
 
 
 func _clear(node: Node) -> void:

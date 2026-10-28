@@ -10,17 +10,19 @@ const BUILDINGS: Dictionary = {
 		{"x": 3.3, "y": 14.2, "w": 4.3, "h": 3.6, "label": "", "type": "house"},
 		{"x": 24.1, "y": 13.2, "w": 4.3, "h": 3.6, "label": "", "type": "house"}],
 	"route": [],
+	"suwon_gym": [],
 	"suwon": [
-		{"x": 4.4, "y": 3.6, "w": 5.2, "h": 3.8, "label": "포켓몬 센터", "type": "center"},
-		{"x": 17.1, "y": 3.1, "w": 6.4, "h": 4.3, "label": "수원 체육관", "type": "gym"},
-		{"x": 12.9, "y": 1.6, "w": 4.2, "h": 2.9, "label": "유물 전시관", "type": "museum"},
-		{"x": 10.3, "y": 11.2, "w": 3.5, "h": 2.2, "label": "여행 상점", "type": "shop"}]
+		{"x": 7.0, "y": 5.7, "w": 6.2, "h": 3.1, "label": "포켓몬 센터", "type": "center"},
+		{"x": 21.4, "y": 5.6, "w": 6.5, "h": 4.6, "label": "수원 체육관", "type": "gym"},
+		{"x": 17.7, "y": 2.0, "w": 5.8, "h": 2.8, "label": "유물 전시관", "type": "museum"},
+		{"x": 13.0, "y": 12.0, "w": 4.9, "h": 3.5, "label": "여행 상점", "type": "shop"}]
 }
 const ROUTE_TRAINERS: Array[Vector2] = [Vector2(8, 8), Vector2(11, 12), Vector2(15, 7), Vector2(18, 13), Vector2(22, 8)]
 const TREE_INTERIOR: Dictionary = {
 	"incheon": [[2.5, 5, 1], [10.8, 4.8, 1], [3, 10, 1], [10.3, 16.7, 1], [16.3, 5.5, 1], [22.5, 3, 0], [27, 4.1, 1], [26.7, 7.7, 0], [22.1, 15.8, 1], [16, 17.7, 0]],
 	"route": [[3, 4.7, 0], [5.4, 6, 1], [2.7, 15.6, 0], [6, 17, 1], [10, 2.2, 0], [17, 2.9, 1], [23.4, 4, 0], [27.7, 6, 1], [25, 16.7, 0], [20, 18, 1], [13, 18.2, 0]],
-	"suwon": [[2.7, 4.7, 1], [10.5, 5.5, 1], [25.5, 5.2, 1], [3, 14.8, 1], [6.5, 16.9, 0], [17.5, 16.8, 1], [25.7, 16, 1], [21, 12.9, 1]]
+	"suwon": [[2.7, 4.7, 1], [10.5, 5.5, 1], [25.5, 5.2, 1], [3, 14.8, 1], [6.5, 16.9, 0], [17.5, 16.8, 1], [25.7, 16, 1], [21, 12.9, 1]],
+	"suwon_gym": []
 }
 
 var state: Dictionary = {}
@@ -33,6 +35,12 @@ static var _collision_trees: Dictionary = {}
 var _paint_target: Node2D
 var _layers: Dictionary = {}
 var _map_key: String = ""
+var tile_map_layer: TileMapLayer
+var atlas_source: TileSetAtlasSource
+var actor_sheets: Dictionary = {}
+var cinematic_mode: String = ""
+var map_backdrop: Sprite2D
+var map_textures: Dictionary = {}
 
 class PaintLayer extends Node2D:
 	var paint: Callable
@@ -46,12 +54,111 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if ResourceLoader.exists("res://assets/fonts/NotoSansKR.otf"):
 		field_font = load("res://assets/fonts/NotoSansKR.otf") as Font
+	for id in ["player", "harin", "seohwa"]:
+		var sprite_path := "res://assets/generated/%s_walk_48.png" % id
+		if ResourceLoader.exists(sprite_path): actor_sheets[id] = load(sprite_path) as Texture2D
+	for id in ["seol_yuna", "yun_seorin", "moon_si_yeon", "hae_nari", "erika", "reina", "kaien", "shiori", "se_arin", "ren_kaito", "karen_yuzuhwa", "shin_tsukasa"]:
+		var sprite_path := "res://assets/generated/field_characters/%s_walk_48.png" % id
+		if ResourceLoader.exists(sprite_path): actor_sheets[id] = load(sprite_path) as Texture2D
+	_build_tilemap()
+	_build_map_backdrop()
+
+
+func _build_tilemap() -> void:
+	var texture := load("res://assets/generated/incheon_tileset_32.png") as Texture2D
+	if texture == null: return
+	atlas_source = TileSetAtlasSource.new()
+	atlas_source.texture = texture
+	atlas_source.texture_region_size = Vector2i(32, 32)
+	for row in range(16):
+		for col in range(16): atlas_source.create_tile(Vector2i(col, row))
+	var tileset := TileSet.new()
+	tileset.tile_size = Vector2i(32, 32)
+	tileset.add_source(atlas_source, 0)
+	tile_map_layer = TileMapLayer.new()
+	tile_map_layer.name = "IncheonTileMap"
+	tile_map_layer.tile_set = tileset
+	tile_map_layer.z_index = -1100
+	tile_map_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	add_child(tile_map_layer)
+
+
+func _build_map_backdrop() -> void:
+	map_backdrop = Sprite2D.new()
+	map_backdrop.name = "DSStylePixelMap"
+	map_backdrop.centered = false
+	map_backdrop.position = Vector2.ZERO
+	map_backdrop.z_index = -1300
+	map_backdrop.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	map_backdrop.visible = false
+	add_child(map_backdrop)
+
+
+func _set_map_backdrop(area: String) -> bool:
+	if map_backdrop == null:
+		return false
+	var file: String = str({
+		"incheon":"incheon_bw_field_960.png", "route":"route_bw_field_960.png",
+		"suwon":"suwon_bw_field_960.png", "suwon_gym":"suwon_gym_bw_field_960.png"
+	}.get(area, ""))
+	if file.is_empty():
+		map_backdrop.visible = false
+		return false
+	var path := "res://assets/generated/maps/%s" % file
+	if not ResourceLoader.exists(path):
+		map_backdrop.visible = false
+		return false
+	if not map_textures.has(path):
+		map_textures[path] = load(path) as Texture2D
+	map_backdrop.texture = map_textures[path] as Texture2D
+	map_backdrop.visible = true
+	return true
+
+
+func _set_tile(cell: Vector2i, atlas: Vector2i) -> void:
+	if tile_map_layer != null: tile_map_layer.set_cell(cell, 0, atlas)
+
+
+func _populate_tilemap(area: String) -> void:
+	if tile_map_layer == null: return
+	tile_map_layer.clear()
+	var use_pixel_backdrop := _set_map_backdrop(area)
+	tile_map_layer.visible = area in ["incheon", "suwon_gym"] and not use_pixel_backdrop
+	if area == "incheon":
+		for y in range(20):
+			for x in range(30): _set_tile(Vector2i(x,y), Vector2i(0 if _noise(x,y) < 0.74 else 1, 0))
+		for x in range(30):
+			for y in [9,10]: _set_tile(Vector2i(x,y), Vector2i(0 if x % 3 else 1, 1))
+		for y in range(2,18):
+			for x in [12,13]: _set_tile(Vector2i(x,y), Vector2i(2 if y % 4 == 0 else 0, 1))
+		for y in range(7,11):
+			for x in range(6,9): _set_tile(Vector2i(x,y), Vector2i(0,1))
+		for y in range(5,11):
+			for x in range(22,25): _set_tile(Vector2i(x,y), Vector2i(1,1))
+		for y in range(20):
+			if y == 9 or y == 10: continue
+			for x in [18,19,20]: _set_tile(Vector2i(x,y), Vector2i((x+y)%5,3))
+		for y in [9,10]:
+			for x in [18,19,20]: _set_tile(Vector2i(x,y), Vector2i(x%4,6))
+	elif area == "suwon_gym":
+		for y in range(20):
+			for x in range(30): _set_tile(Vector2i(x,y), Vector2i((x+y)%3,1))
+		for x in range(30):
+			_set_tile(Vector2i(x,0),Vector2i(x%4,2))
+			_set_tile(Vector2i(x,19),Vector2i(x%4,2))
+		for y in range(1,19):
+			_set_tile(Vector2i(0,y),Vector2i(0,2))
+			_set_tile(Vector2i(29,y),Vector2i(1,2))
+		for y in range(5,18): _set_tile(Vector2i(14,y),Vector2i(y%3,1))
+		for x in range(12,17): _set_tile(Vector2i(x,4),Vector2i(x%4,2))
+		_set_tile(Vector2i(14,18),Vector2i(2,6))
 
 
 static func area_info(area: String) -> Dictionary:
 	match area:
 		"route": return {"name": "1번도로", "subtitle": "인천 → 수원 · 바람이 머무는 숲길"}
 		"suwon": return {"name": "수원 · 성곽 마을", "subtitle": "첫 번째 배지를 향하여"}
+		"suwon_gym": return {"name": "수원 체육관 · 성문 안뜰", "subtitle": "문양을 밝히고 관장에게 도전하세요"}
 		_: return {"name": "인천 · 벚꽃 마을", "subtitle": "모든 인연이 시작되는 곳"}
 
 
@@ -60,6 +167,7 @@ static func _noise(a: float, b: float = 0.0) -> float:
 
 
 static func _trees(area: String) -> Array[Dictionary]:
+	if area == "suwon_gym": return []
 	if _collision_trees.has(area):
 		return _collision_trees[area]
 	var result: Array[Dictionary] = []
@@ -79,9 +187,15 @@ static func _trees(area: String) -> Array[Dictionary]:
 	return result
 
 
-static func can_walk(area: String, x: float, y: float) -> bool:
+static func can_walk(area: String, x: float, y: float, gym_open: bool = false) -> bool:
 	if not BUILDINGS.has(area) or not is_finite(x) or not is_finite(y):
 		return false
+	if area == "suwon_gym":
+		if x < 0.65 or x > 28.45 or y < 1.2 or y > 18.45:
+			return false
+		if not gym_open and y < 5.15 and x > 10.8 and x < 18.5:
+			return false
+		return true
 	if x < 0.65 or x > 28.45 or y < 1.9 or y > 18.45:
 		return false
 	for building in BUILDINGS[area]:
@@ -90,14 +204,10 @@ static func can_walk(area: String, x: float, y: float) -> bool:
 	for tree in _trees(area):
 		if Vector2(x, y).distance_to(Vector2(tree.x, tree.y)) < 0.32 * tree.scale:
 			return false
-	if area == "incheon" and x > 18 and x < 20.6 and (y < 9 or y > 11.2):
-		return false
-	if area == "route" and x > 24.7 and x < 26.4 and (y < 9 or y > 11.2):
-		return false
-	if area == "suwon" and Vector2(x - 14.3, (y - 10.2) * 1.3).length() < 1.15:
-		return false
+	if area == "incheon" and x > 18 and x < 20.6 and (y < 9 or y > 11.2): return false
+	if area == "route" and x > 24.7 and x < 26.4 and (y < 9 or y > 11.2): return false
+	if area == "suwon" and Vector2(x - 14.3, (y - 10.2) * 1.3).length() < 1.15: return false
 	return true
-
 
 static func is_grass(area: String, x: float, y: float) -> bool:
 	return area == "route" and x >= 8 and x <= 22 and ((y >= 4 and y <= 8) or (y >= 12 and y <= 16))
@@ -109,7 +219,7 @@ static func interactions(game: Dictionary) -> Array[Dictionary]:
 	if area == "incheon":
 		list.assign([
 			{"id": "lab", "label": "백서화 연구소", "x": 7.0, "y": 8.0, "kind": "building"},
-			{"id": "harin", "label": "서하린", "x": 15.0, "y": 12.0, "kind": "person"},
+			{"id": "harin", "label": "서하린", "x": 20.0, "y": 12.0, "kind": "person"},
 			{"id": "gate", "label": "1번도로", "x": 28.0, "y": 10.0, "kind": "exit"}])
 		if game.get("stage", "prologue") == "prologue":
 			list.append({"id": "ralts", "label": "작은 울음소리", "x": 23.0, "y": 5.0, "kind": "quest"})
@@ -122,13 +232,24 @@ static func interactions(game: Dictionary) -> Array[Dictionary]:
 			list.append({"id": "trainer%d" % i, "label": "도로 트레이너 %d" % (i + 1), "x": ROUTE_TRAINERS[i].x, "y": ROUTE_TRAINERS[i].y, "kind": "trainer"})
 		if not game.get("flags", {}).get("routeItem", false):
 			list.append({"id": "item", "label": "샛길의 여행 물품", "x": 21.0, "y": 16.0, "kind": "item"})
+	elif area == "suwon_gym":
+		list.assign([
+			{"id":"gym_exit", "label":"수원 마을로", "x":14.0, "y":18.0, "kind":"exit"},
+			{"id":"gym_guide", "label":"성곽 안내석", "x":4.0, "y":15.0, "kind":"person"},
+			{"id":"gym_plate_sun", "label":"해 문양", "x":9.0, "y":10.0, "kind":"puzzle"},
+			{"id":"gym_plate_mountain", "label":"산 문양", "x":15.0, "y":10.0, "kind":"puzzle"},
+			{"id":"gym_plate_water", "label":"물 문양", "x":21.0, "y":10.0, "kind":"puzzle"},
+			{"id":"gym_leader", "label":"관장 이도윤", "x":14.0, "y":3.0, "kind":"person"}])
+		var gym_points: Array[Vector2] = [Vector2(6,6), Vector2(24,6), Vector2(24,12)]
+		var gym_names := ["훈련생 민준", "안내원 지아", "순찰자 도윤"]
+		for i in range(3): list.append({"id":"gym_trainer%d" % i, "label":gym_names[i], "x":gym_points[i].x, "y":gym_points[i].y, "kind":"trainer"})
 	else:
 		list.assign([
 			{"id": "gateBack", "label": "1번도로 방면", "x": 1.0, "y": 10.0, "kind": "exit"},
-			{"id": "gym", "label": "수원 체육관", "x": 20.0, "y": 8.0, "kind": "building"},
-			{"id": "center", "label": "포켓몬 센터", "x": 7.0, "y": 8.0, "kind": "building"},
-			{"id": "shop", "label": "여행 상점", "x": 12.0, "y": 14.0, "kind": "building"},
-			{"id": "museum", "label": "유물 전시관", "x": 15.0, "y": 5.0, "kind": "building"}])
+			{"id": "gym", "label": "수원 체육관", "x": 24.5, "y": 11.1, "kind": "building"},
+			{"id": "center", "label": "포켓몬 센터", "x": 10.1, "y": 9.1, "kind": "building"},
+			{"id": "shop", "label": "여행 상점", "x": 15.5, "y": 15.8, "kind": "building"},
+			{"id": "museum", "label": "유물 전시관", "x": 20.6, "y": 5.4, "kind": "building"}])
 	return list
 
 
@@ -380,6 +501,9 @@ func _lantern(x: float, y: float) -> void:
 
 
 func _decoration(area: String) -> void:
+	if area == "suwon_gym":
+		_gym_props()
+		return
 	var lanterns: Array = [[12, 8], [16.7, 8], [21.5, 11.8], [6, 8.5], [8.4, 8.5]]
 	if area == "suwon":
 		lanterns = [[6, 8.5], [8.5, 8.5], [18.5, 8.5], [22, 8.5], [14, 6]]
@@ -415,6 +539,39 @@ func _decoration(area: String) -> void:
 		_box(bed[0] * TILE - 14, bed[1] * TILE - 8, 44, 21, "617a54")
 		for i in range(7):
 			_flower(bed[0] * TILE - 8 + i * 5, bed[1] * TILE + _noise(i, bed[1]) * 5, "f8dce5" if i % 2 else "dd94b6", 2.2)
+
+
+func _gym_props() -> void:
+	_box(0,0,WORLD_SIZE.x,34,"243d46")
+	_box(0,34,WORLD_SIZE.x,8,"bdab82")
+	for x in range(1,29,3): _box(x*TILE+5,44,12,5,"738287")
+	for y in [5,14]:
+		for x in [3,26]:
+			_box(x*TILE,y*TILE,34,42,"526a65")
+			_box(x*TILE+4,y*TILE+4,26,34,"c9b986")
+			_line([[x*TILE+8,y*TILE+27],[x*TILE+26,y*TILE+11]],"8b5e51",3)
+	var plates := [{"x":10,"symbol":"☼"},{"x":14,"symbol":"△"},{"x":18,"symbol":"≈"}]
+	var step: int = int(state.get("gymPuzzleStep",0))
+	for i in range(plates.size()):
+		var px: float = plates[i].x*TILE+16
+		var py: float = 10*TILE+16
+		_box(px-19,py-19,38,38,"6c7169")
+		_box(px-15,py-15,30,30,"d5c69f" if i >= step else "a6cba2")
+		_oval(px,py,10,10,"d7bb79" if i >= step else "7ca68b",20)
+		_label(plates[i].symbol,px,py,14,"fff5dc")
+	var unlocked: bool = state.get("gymTrainerWins",[]).size() >= 3 and state.get("gymPuzzleSolved",false)
+	if not unlocked:
+		_box(11*TILE,4*TILE,8*TILE,8,"60463e")
+		for x in range(11,20,2): _box(x*TILE,4*TILE-5,8,23,"d3bd87")
+		_line([[11*TILE,4*TILE+18],[19*TILE,4*TILE+18]],"e9d6a3",3)
+	else:
+		_box(12*TILE,4*TILE,4*TILE,8,"86bc9a88")
+	_box(12*TILE,2*TILE,4*TILE,18,"796b58")
+	_box(12*TILE+5,2*TILE+5,4*TILE-10,8,"d6c69e")
+	_oval(14*TILE+16,2*TILE+7,10,6,"5a8e81")
+	_box(3*TILE,14*TILE,3*TILE,2*TILE,"725b4b")
+	_box(3*TILE+4,14*TILE+4,3*TILE-8,2*TILE-8,"e4d7b7")
+	_label("해 → 산 → 물",4.5*TILE,15*TILE,10,"354d4c")
 
 
 func _person(tx: float, ty: float, kind: String, facing: String = "down", walking: bool = false) -> void:
@@ -487,7 +644,10 @@ func _ralts_marker(tx: float, ty: float, rescue: bool = false) -> void:
 	_label("랄토스" if not rescue else "?", x, y + 11, 10, "25485b")
 
 
-func _trainer_done(index: int) -> bool:
+func _trainer_done(id: String) -> bool:
+	if id.begins_with("gym_trainer"):
+		return state.get("gymTrainerWins", []).has(int(id.trim_prefix("gym_trainer")))
+	var index: int = int(id.trim_prefix("trainer"))
 	var wins: Array = state.get("flags", {}).get("trainerWins", state.get("trainerWins", []))
 	return wins.has(index) or wins.has("trainer%d" % index)
 
@@ -518,7 +678,7 @@ func _marker(item: Dictionary) -> void:
 		_oval(x, yy, 9, 9, "f8dea2" if target else "f6eddd", 16)
 		var symbol: String = "!" if target else "···"
 		if item.kind == "trainer":
-			symbol = "✓" if _trainer_done(int(item.id.trim_prefix("trainer"))) else "!"
+			symbol = "✓" if _trainer_done(item.id) else "!"
 		_label(symbol, x, yy, 11, "35505b")
 	if nearby:
 		var width: float = item.label.length() * 11 + 24
@@ -548,6 +708,7 @@ func _layer(id: String, depth: int, callback: Callable) -> PaintLayer:
 
 
 func _base_map(area: String) -> void:
+	if map_backdrop != null and map_backdrop.visible: return
 	_ground(area)
 	_river(area)
 	_decoration(area)
@@ -562,29 +723,50 @@ func _prepare_map(area: String) -> void:
 		old.hide()
 		old.queue_free()
 	_layers.clear()
-	# 고정 지형은 각 CanvasItem에 그리기 명령을 보관해 매 프레임 다시 만들지 않습니다.
+	# TileMapLayer holds the generated 32px terrain atlas; prop layers sort above it.
+	_populate_tilemap(area)
 	_layer("ground", -1000, _base_map.bind(area)).queue_redraw()
-	for i in range(BUILDINGS[area].size()):
-		var building: Dictionary = BUILDINGS[area][i]
-		_layer("building%d" % i, int((building.y + building.h) * TILE), _building.bind(building)).queue_redraw()
-	if not _tree_cache.has(area):
-		_tree_cache[area] = _trees(area)
-	for i in range(_tree_cache[area].size()):
-		var tree: Dictionary = _tree_cache[area][i]
-		_layer("tree%d" % i, int(tree.y * TILE + 16), _tree.bind(tree)).queue_redraw()
+	var using_pixel_backdrop := map_backdrop != null and map_backdrop.visible
+	if not using_pixel_backdrop:
+		for i in range(BUILDINGS[area].size()):
+			var building: Dictionary = BUILDINGS[area][i]
+			_layer("building%d" % i, int((building.y + building.h) * TILE), _building.bind(building)).queue_redraw()
+		if area == "suwon_gym":
+			_layer("gym-props", -800, _decoration.bind(area)).queue_redraw()
+		if not _tree_cache.has(area):
+			_tree_cache[area] = _trees(area)
+		for i in range(_tree_cache[area].size()):
+			var tree: Dictionary = _tree_cache[area][i]
+			_layer("tree%d" % i, int(tree.y * TILE + 16), _tree.bind(tree)).queue_redraw()
+
+
+func _draw_field_sprite(sheet_id: String, tx: float, ty: float, facing: String, walking: bool) -> void:
+	var sheet: Texture2D = actor_sheets.get(sheet_id)
+	if sheet == null:
+		_person(tx,ty,sheet_id,facing,walking)
+		return
+	var col: int = {"down":0,"left":1,"right":2,"up":3}.get(facing,0)
+	var row: int = 0 if not walking else 1 + (int(_time*8.0)%2 if not reduced_motion else 0)
+	var x: float = tx*TILE+16
+	var y: float = ty*TILE+16
+	_paint_target.draw_texture_rect_region(sheet,Rect2(x-20,y-31,40,48),Rect2(col*48,row*48,48,48),Color.WHITE)
 
 
 func _actor(data: Dictionary) -> void:
 	match data.kind:
-		"person": _person(data.x, data.ty, data.role)
+		"person":
+			var character_id: String = str(data.get("character_id", data.role))
+			if actor_sheets.has(character_id):
+				_draw_field_sprite(character_id, data.x, data.ty, str(data.get("facing", "down")), bool(data.get("walking", false)))
+			else:
+				_person(data.x, data.ty, data.role)
 		"ralts": _ralts_marker(data.x, data.ty, true)
 		"player":
-			var player: Dictionary = state.get("player", {"x": 14.0, "y": 14.0, "facing": "down"})
-			_person(player.x, player.y, "player", player.get("facing", "down"), moving)
-
+			var player: Dictionary = state.get("player", {"x":14.0,"y":14.0,"facing":"down"})
+			_draw_field_sprite("player",player.x,player.y,player.get("facing","down"),moving)
 
 func _water_motion(area: String) -> void:
-	if area == "suwon" or reduced_motion:
+	if (map_backdrop != null and map_backdrop.visible) or area in ["suwon", "suwon_gym"] or reduced_motion:
 		return
 	var x: float = 18.2 * TILE if area == "incheon" else 24.9 * TILE
 	var width: float = 2.5 * TILE if area == "incheon" else 1.65 * TILE
@@ -596,6 +778,21 @@ func _water_motion(area: String) -> void:
 
 
 func _effects(area: String) -> void:
+	if cinematic_mode in ["traces", "rescue"]:
+		var cx: float = 23*TILE+16
+		var cy: float = 5*TILE+16
+		if cinematic_mode == "traces":
+			for i in range(6):
+				var drift: float = sin(_time*2.8+i*0.9)*9
+				_oval(cx+drift,cy+cos(_time*2+i)*7,4,7,"7965c588",12)
+				_line([[cx-35+i*12,cy+35],[cx-28+i*12,cy+28]],"a495c099",2)
+			_label("?",cx,cy-40,18,"fff5d9")
+		else:
+			var pulse: float = 1.0 + (0.12 if reduced_motion else 0.2*sin(_time*4.0))
+			for i in range(5): _oval(cx,cy,12+i*10*pulse,8+i*7*pulse,"c8eaff22",20)
+			for i in range(8):
+				var angle: float = _time*1.5+i*TAU/8
+				_oval(cx+cos(angle)*34,cy+sin(angle)*22,2.4,2.4,"fff5c9",8)
 	if state.get("stage", "prologue") == "prologue" and area == "incheon":
 		_box(0, 0, WORLD_SIZE.x, WORLD_SIZE.y, "22335f15")
 	if not reduced_motion:
@@ -617,7 +814,7 @@ func _draw() -> void:
 	_prepare_map(area)
 	var actors: Array[Dictionary] = []
 	if area == "incheon":
-		actors.append({"id": "harin", "y": 400.0, "kind": "person", "x": 15.0, "ty": 12.0, "role": "harin"})
+		actors.append({"id": "harin", "y": 400.0, "kind": "person", "x": 20.0, "ty": 12.0, "role": "harin"})
 		if state.get("stage", "prologue") != "prologue":
 			actors.append({"id": "seohwa", "y": 272.0, "kind": "person", "x": 7.0, "ty": 8.0, "role": "seohwa"})
 		else:
@@ -627,6 +824,11 @@ func _draw() -> void:
 		for i in range(ROUTE_TRAINERS.size()):
 			var point: Vector2 = ROUTE_TRAINERS[i]
 			actors.append({"id": "trainer%d" % i, "y": point.y * TILE + 16, "kind": "person", "x": point.x, "ty": point.y, "role": "trainer"})
+	if area == "suwon_gym":
+		var gym_points: Array[Vector2] = [Vector2(6,6), Vector2(24,6), Vector2(24,12)]
+		for i in range(gym_points.size()):
+			actors.append({"id":"gym-trainer%d" % i,"y":gym_points[i].y*TILE+16,"kind":"person","x":gym_points[i].x,"ty":gym_points[i].y,"role":"trainer"})
+		actors.append({"id":"gym-leader","y":3*TILE+16,"kind":"person","x":14.0,"ty":3.0,"role":"healer"})
 	var player: Dictionary = state.get("player", {"x": 14.0, "y": 14.0, "facing": "down"})
 	actors.append({"id": "player", "y": player.y * TILE + 16, "kind": "player"})
 	# 발 위치의 깊이를 사용해 건물·나무 뒤를 자연스럽게 지나갑니다.
